@@ -455,7 +455,7 @@ function sendJson(res, code, obj) {
 
 const htmlCache = fs.readFileSync(path.join(ROOT, 'gui.html'), 'utf8');
 
-const server = http.createServer(async (req, res) => {
+const requestHandler = async (req, res) => {
   const url = req.url.split('?')[0];
 
   if (req.method === 'GET' && (url === '/' || url === '/index.html')) {
@@ -516,15 +516,36 @@ const server = http.createServer(async (req, res) => {
   }
 
   sendJson(res, 404, { error: 'Not Found' });
-});
+};
 
-const PORT = Number(process.env.GUI_PORT) || 8765;
-server.listen(PORT, () => {
-  console.log(`X video downloader GUI: http://127.0.0.1:${PORT}`);
-  if (!process.argv.includes('--no-open')) {
-    spawn('cmd', ['/c', 'start', '', `http://127.0.0.1:${PORT}`], {
-      detached: true,
-      stdio: 'ignore',
-    }).unref();
+const preferredPort = Number(process.env.GUI_PORT) || 8765;
+
+function startServer(port) {
+  if (port > preferredPort + 20) {
+    console.error('No free port available for the GUI server');
+    process.exit(1);
   }
-});
+
+  const server = http.createServer(requestHandler);
+  server.once('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      console.log(`Port ${port} is in use, trying ${port + 1}...`);
+      startServer(port + 1);
+    } else {
+      console.error(`Failed to start GUI server: ${err.message}`);
+      process.exit(1);
+    }
+  });
+  server.listen(port, () => {
+    const actualPort = server.address().port;
+    console.log(`X video downloader GUI: http://127.0.0.1:${actualPort}`);
+    if (!process.argv.includes('--no-open')) {
+      spawn('cmd', ['/c', 'start', '', `http://127.0.0.1:${actualPort}`], {
+        detached: true,
+        stdio: 'ignore',
+      }).unref();
+    }
+  });
+}
+
+startServer(preferredPort);
