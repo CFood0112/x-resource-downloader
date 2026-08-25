@@ -225,6 +225,7 @@ function baseState() {
 let job = null;
 let jobTimer = null;
 let clients = new Set();
+let lastPushAt = 0;
 
 function publicState() {
   const s = job ? job.state : baseState();
@@ -255,6 +256,14 @@ function addLog(line) {
   if (job.state.logs.length > 2000) {
     job.state.logs.splice(0, job.state.logs.length - 2000);
   }
+}
+
+function pushState(force = false) {
+  if (!job) return;
+  const now = Date.now();
+  if (!force && now - lastPushAt < 300) return;
+  lastPushAt = now;
+  broadcast({ type: 'state', ...publicState() });
 }
 
 function lineCount(file) {
@@ -311,6 +320,7 @@ const infoRe = /^\[info\] (\S+): Downloading/;
 function parseDownloadLine(line) {
   if (!job) return;
   addLog(line);
+  pushState();
 
   let m = line.match(extractRe);
   if (m) {
@@ -323,7 +333,6 @@ function parseDownloadLine(line) {
     job.state.currentFile = path.basename(m[1].trim());
     job.state.fileCount += 1;
     job.state.currentIndex = job.state.fileCount;
-    broadcast({ type: 'state', ...publicState() });
     return;
   }
 
@@ -344,7 +353,6 @@ function parseDownloadLine(line) {
     job.state.percent = Number(m[1]);
     job.state.speed = m[3];
     job.state.eta = m[4] === 'Unknown' ? '未知' : m[4];
-    broadcast({ type: 'progress', ...publicState() });
     return;
   }
 
@@ -353,7 +361,6 @@ function parseDownloadLine(line) {
     job.state.percent = 100;
     job.state.speed = m[1];
     job.state.eta = '';
-    broadcast({ type: 'progress', ...publicState() });
     return;
   }
 
@@ -362,7 +369,7 @@ function parseDownloadLine(line) {
       url: job.state.currentUrl || '',
       message: line.replace(/^ERROR:\s*/, ''),
     });
-    broadcast({ type: 'failures', ...publicState() });
+    pushState(true);
   }
 }
 
@@ -406,6 +413,7 @@ async function runCollect(count) {
     { ...process.env, NODE_PATH: nodeModules, COLLECT_MAX_LIKES: String(count) },
     (line) => {
       addLog(line);
+      pushState();
       const m = line.match(/\[collect\] 已检测到登录状态/);
       if (m) {
         job.state.message = '已登录，正在滚动喜欢列表';
@@ -448,6 +456,7 @@ function startJob(mode, body) {
   jobTimer = setInterval(() => {
     if (job) {
       job.state.elapsed = Math.floor((Date.now() - job.startedAt) / 1000);
+      pushState(true);
     }
   }, 1000);
 
