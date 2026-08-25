@@ -20,7 +20,6 @@ function Resolve-FromRoot([string]$p) {
 
 $pythonPath = Resolve-FromRoot $config.pythonPath
 $activeUrlsFile = if ($UrlsFile) { Resolve-FromRoot $UrlsFile } else { Resolve-FromRoot $config.urlsFile }
-$cookiesFile = Resolve-FromRoot $config.cookiesFile
 $archiveFile = Resolve-FromRoot $config.archiveFile
 $downloadDir = Resolve-FromRoot $config.downloadDir
 
@@ -29,12 +28,20 @@ $folderMode = 'flat'
 $nameMode = 'structured'
 $proxyMode = 'auto'
 $proxyUrl = ''
+$useDownloadAccount = $false
 if (Test-Path $settingsFile) {
     $settings = Get-Content $settingsFile -Raw | ConvertFrom-Json
     $folderMode = $settings.folderMode
     $nameMode = $settings.nameMode
     $proxyMode = $settings.proxy
     $proxyUrl = $settings.proxyUrl
+    $useDownloadAccount = [bool]$settings.useDownloadAccount
+}
+
+$activeCookiesFile = Resolve-FromRoot $config.cookiesFile
+$downloadCookiesFile = Resolve-FromRoot $config.downloadCookiesFile
+if ($useDownloadAccount -and (Test-Path $downloadCookiesFile)) {
+    $activeCookiesFile = $downloadCookiesFile
 }
 
 if (-not (Test-Path $activeUrlsFile)) {
@@ -67,7 +74,7 @@ $outputTemplate = Join-Path $downloadDir ($subPath + '%(upload_date|unknown)s - 
 
 $ytArgs = @(
     '--batch-file', $activeUrlsFile,
-    '--cookies', $cookiesFile,
+    '--cookies', $activeCookiesFile,
     '--ignore-errors',
     '--newline',
     '--no-colors',

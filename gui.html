@@ -170,6 +170,12 @@ textarea {
   width: auto;
 }
 
+.status-note {
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .status-row {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
@@ -345,6 +351,13 @@ textarea {
         强制重新下载已下载过的视频
       </label>
 
+      <label class="check">
+        <input id="useDownloadAccount" type="checkbox">
+        使用独立下载账号（小号）
+      </label>
+      <button id="loginDownload" data-run="login_download" class="secondary">登录下载小号</button>
+      <div id="downloadAccountStatus" class="status-note">未登录</div>
+
       <button id="saveSettings" class="secondary">保存设置</button>
     </aside>
 
@@ -457,6 +470,10 @@ function applyState(payload) {
     $('proxy').value = payload.settings.proxy || 'auto';
     $('proxyUrl').value = payload.settings.proxyUrl || '';
     $('forceRedownload').checked = !!payload.settings.forceRedownload;
+    $('useDownloadAccount').checked = !!payload.settings.useDownloadAccount;
+    $('downloadAccountStatus').textContent = payload.config.downloadAccountReady
+      ? `已配置 ${payload.config.downloadCookiesFile}`
+      : '未登录';
   }
 }
 
@@ -467,6 +484,7 @@ async function saveSettings() {
     proxy: $('proxy').value,
     proxyUrl: $('proxyUrl').value.trim(),
     forceRedownload: $('forceRedownload').checked,
+    useDownloadAccount: $('useDownloadAccount').checked,
   };
   await fetch('/api/settings', {
     method: 'POST',

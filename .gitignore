@@ -1,6 +1,7 @@
 # Runtime / generated data
 .venv/
 profile/
+profile_download/
 downloads/
 videos/
 logs/
@@ -9,6 +10,7 @@ liked_urls.txt
 seen_urls.txt
 manual_urls.txt
 cookies.txt
+cookies_download.txt
 archive.txt
 .gui.lock
 

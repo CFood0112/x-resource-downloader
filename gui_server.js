@@ -8,6 +8,7 @@ const CONFIG_PATH = path.join(ROOT, 'config.json');
 const SETTINGS_PATH = path.join(ROOT, 'settings.json');
 const LOG_DIR = path.join(ROOT, 'logs');
 const COLLECT_JS = path.join(ROOT, 'collect_likes.js');
+const LOGIN_JS = path.join(ROOT, 'login_download_account.js');
 const LOCK_FILE = path.join(ROOT, '.gui.lock');
 
 const readJson = (p) => {
@@ -32,6 +33,7 @@ const nodeModules = resolveRel(config.nodeModules || '');
 const pythonPath = resolveRel(config.pythonPath || 'python.exe');
 const urlsFile = resolveRel(config.urlsFile || 'liked_urls.txt');
 const cookiesFile = resolveRel(config.cookiesFile || 'cookies.txt');
+const downloadCookiesFile = resolveRel(config.downloadCookiesFile || 'cookies_download.txt');
 const archiveFile = resolveRel(config.archiveFile || 'archive.txt');
 const manualUrlsFile = path.join(ROOT, 'manual_urls.txt');
 const downloadDir = resolveRel(config.downloadDir || 'videos');
@@ -166,9 +168,13 @@ function buildOutputTemplate() {
 }
 
 function buildYtdlpArgs(urls, force) {
+  const activeCookies =
+    settings.useDownloadAccount && fs.existsSync(downloadCookiesFile)
+      ? downloadCookiesFile
+      : cookiesFile;
   const args = [
     '--batch-file', urls,
-    '--cookies', cookiesFile,
+    '--cookies', activeCookies,
     '--ignore-errors',
     '--newline',
     '--no-colors',
@@ -237,6 +243,8 @@ function publicState() {
     config: {
       username: config.username || '',
       downloadDir: config.downloadDir || 'videos',
+      downloadAccountReady: fs.existsSync(downloadCookiesFile),
+      downloadCookiesFile: path.basename(downloadCookiesFile),
     },
   };
 }
@@ -396,6 +404,9 @@ async function runDownload(urls, force) {
   job.state.speed = '';
   job.state.eta = '';
   job.state.totalLinks = lineCount(urls);
+  if (settings.useDownloadAccount && !fs.existsSync(downloadCookiesFile)) {
+    addLog('[job] 未找到小号 Cookie，本次回退使用主账号 Cookie');
+  }
   addLog(`[job] 开始下载 ${job.state.totalLinks} 条链接`);
   broadcast({ type: 'state', ...publicState() });
 
@@ -485,6 +496,28 @@ function startJob(mode, body) {
         fs.writeFileSync(manualUrlsFile, `${links.join('\n')}\n`, 'utf8');
         addLog(`[job] 收到 ${links.length} 条手动链接`);
         await runDownload(manualUrlsFile, !!settings.forceRedownload);
+      } else if (mode === 'login_download') {
+        job.state.status = 'logging_in';
+        job.state.message = '正在打开下载小号登录窗口';
+        addLog('[job] 开始下载小号登录流程');
+        broadcast({ type: 'state', ...publicState() });
+        const code = await runProcess(
+          nodePath,
+          [LOGIN_JS, CONFIG_PATH],
+          { ...process.env, NODE_PATH: nodeModules },
+          (line) => {
+            addLog(line);
+            pushState();
+          }
+        );
+        if (job.cancelled) return;
+        if (code !== 0) {
+          throw new Error(`小号登录失败，退出码 ${code}`);
+        }
+        settings.useDownloadAccount = true;
+        writeJson(SETTINGS_PATH, settings);
+        job.state.message = '下载账号 Cookie 已保存';
+        addLog('[job] 下载账号 Cookie 已保存');
       } else if (mode === 'download') {
         if (!fs.existsSync(urlsFile) || !fs.readFileSync(urlsFile, 'utf8').trim()) {
           throw new Error('还没有采集列表，请先采集');
