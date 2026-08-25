@@ -105,7 +105,7 @@ function showAlreadyRunning(port) {
   const url = `http://127.0.0.1:${port || 8765}`;
   console.log(`GUI is already running at ${url}`);
   if (process.env.NO_POPUP !== '1') {
-    const script = `Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.MessageBox]::Show('X 下载器已经在运行。\\n当前地址：${url}', 'X 下载器', 'OK', 'Information')`;
+    const script = `Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.MessageBox]::Show('X 下载器已经在运行。当前地址：${url}', 'X 下载器', 'OK', 'Information')`;
     spawn('powershell.exe', ['-NoProfile', '-Command', script], {
       detached: true,
       stdio: 'ignore',
