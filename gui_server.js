@@ -323,7 +323,7 @@ function parseDownloadLine(line) {
     job.state.currentFile = path.basename(m[1].trim());
     job.state.fileCount += 1;
     job.state.currentIndex = job.state.fileCount;
-    broadcast({ type: 'state', state: publicState() });
+    broadcast({ type: 'state', ...publicState() });
     return;
   }
 
@@ -344,7 +344,7 @@ function parseDownloadLine(line) {
     job.state.percent = Number(m[1]);
     job.state.speed = m[3];
     job.state.eta = m[4] === 'Unknown' ? '未知' : m[4];
-    broadcast({ type: 'progress', state: publicState() });
+    broadcast({ type: 'progress', ...publicState() });
     return;
   }
 
@@ -353,7 +353,7 @@ function parseDownloadLine(line) {
     job.state.percent = 100;
     job.state.speed = m[1];
     job.state.eta = '';
-    broadcast({ type: 'progress', state: publicState() });
+    broadcast({ type: 'progress', ...publicState() });
     return;
   }
 
@@ -362,7 +362,7 @@ function parseDownloadLine(line) {
       url: job.state.currentUrl || '',
       message: line.replace(/^ERROR:\s*/, ''),
     });
-    broadcast({ type: 'failures', state: publicState() });
+    broadcast({ type: 'failures', ...publicState() });
   }
 }
 
@@ -377,7 +377,7 @@ async function runDownload(urls, force) {
   job.state.eta = '';
   job.state.totalLinks = lineCount(urls);
   addLog(`[job] 开始下载 ${job.state.totalLinks} 条链接`);
-  broadcast({ type: 'state', state: publicState() });
+  broadcast({ type: 'state', ...publicState() });
 
   const args = buildYtdlpArgs(urls, force);
   const code = await runProcess(
@@ -398,7 +398,7 @@ async function runCollect(count) {
   job.state.status = 'collecting';
   job.state.message = `正在采集最近 ${count} 条喜欢视频`;
   addLog(`[job] 开始采集最近 ${count} 条喜欢视频`);
-  broadcast({ type: 'state', state: publicState() });
+  broadcast({ type: 'state', ...publicState() });
 
   const code = await runProcess(
     nodePath,
@@ -409,7 +409,7 @@ async function runCollect(count) {
       const m = line.match(/\[collect\] 已检测到登录状态/);
       if (m) {
         job.state.message = '已登录，正在滚动喜欢列表';
-        broadcast({ type: 'state', state: publicState() });
+        broadcast({ type: 'state', ...publicState() });
       }
     }
   );
@@ -425,7 +425,7 @@ async function runCollect(count) {
     job.state.status = 'done';
     job.state.message = '没有找到新的视频推文';
     addLog('[job] 没有找到新的视频推文');
-    broadcast({ type: 'state', state: publicState() });
+    broadcast({ type: 'state', ...publicState() });
     return;
   }
 
@@ -451,7 +451,7 @@ function startJob(mode, body) {
     }
   }, 1000);
 
-  broadcast({ type: 'state', state: publicState() });
+  broadcast({ type: 'state', ...publicState() });
 
   (async () => {
     try {
@@ -491,7 +491,7 @@ function startJob(mode, body) {
         job.state.running = false;
         clearInterval(jobTimer);
         writeJobFiles();
-        broadcast({ type: 'state', state: publicState() });
+        broadcast({ type: 'state', ...publicState() });
         job = null;
       }
     }
@@ -591,7 +591,7 @@ const requestHandler = async (req, res) => {
     const body = await readBody(req);
     settings = { ...settings, ...body.settings };
     writeJson(SETTINGS_PATH, settings);
-    broadcast({ type: 'settings', state: publicState() });
+    broadcast({ type: 'settings', ...publicState() });
     sendJson(res, 200, { ok: true });
     return;
   }
