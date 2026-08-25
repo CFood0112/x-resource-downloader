@@ -234,6 +234,9 @@ let job = null;
 let jobTimer = null;
 let clients = new Set();
 let lastPushAt = 0;
+let hasEverHadClient = false;
+let shutdownTimer = null;
+let guiCloseRequested = false;
 
 function publicState() {
   const s = job ? job.state : baseState();
@@ -258,6 +261,24 @@ function broadcast(payload) {
       clients.delete(res);
     }
   }
+}
+
+function cancelAutoShutdown() {
+  if (shutdownTimer) {
+    clearTimeout(shutdownTimer);
+    shutdownTimer = null;
+  }
+}
+
+function scheduleAutoShutdown() {
+  if (!hasEverHadClient || (job && job.state.running)) return;
+  if (shutdownTimer) return;
+  if (!guiCloseRequested && clients.size > 0) return;
+  shutdownTimer = setTimeout(() => {
+    console.log('GUI closed, shutting down server');
+    removeLock();
+    process.exit(0);
+  }, 8000);
 }
 
 function addLog(line) {
@@ -579,6 +600,7 @@ function startJob(mode, body) {
         broadcast({ type: 'state', ...publicState() });
         job = null;
       }
+      scheduleAutoShutdown();
     }
   })();
 
@@ -667,8 +689,24 @@ const requestHandler = async (req, res) => {
       Connection: 'keep-alive',
     });
     res.write(`data: ${JSON.stringify({ type: 'hello', ...publicState() })}\n\n`);
+    hasEverHadClient = true;
+    guiCloseRequested = false;
+    cancelAutoShutdown();
     clients.add(res);
-    req.on('close', () => clients.delete(res));
+    const handleClose = () => {
+      clients.delete(res);
+      scheduleAutoShutdown();
+    };
+    req.on('close', handleClose);
+    res.on('close', handleClose);
+    return;
+  }
+
+  if (req.method === 'POST' && url === '/api/gui-close') {
+    req.resume();
+    guiCloseRequested = true;
+    scheduleAutoShutdown();
+    sendJson(res, 200, { ok: true });
     return;
   }
 

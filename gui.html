@@ -545,6 +545,10 @@ es.onerror = () => {
   $('conn').textContent = '连接断开';
 };
 
+window.addEventListener('pagehide', () => {
+  navigator.sendBeacon('/api/gui-close', 'close');
+});
+
 fetch('/api/state')
   .then((r) => r.json())
   .then((payload) => {
