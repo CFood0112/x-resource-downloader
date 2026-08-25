@@ -12,6 +12,8 @@ const profileDir = resolveRel(config.profileDir);
 const urlsFile = resolveRel(config.urlsFile);
 const cookiesFile = resolveRel(config.cookiesFile);
 const seenUrlsFile = resolveRel(config.seenUrlsFile || 'seen_urls.txt');
+const archiveFile = resolveRel(config.archiveFile || 'archive.txt');
+const logsDir = resolveRel(config.logsDir || 'logs');
 const configuredMax = Number(config.maxLikesToScan) || 500;
 const maxLikes = Number(process.env.COLLECT_MAX_LIKES) || configuredMax;
 const maxScrollAttempts = Number(config.maxScrollAttempts) || 80;
@@ -23,6 +25,60 @@ function log(msg) {
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function loadArchiveSkipUrls() {
+  const archiveIds = new Set();
+  try {
+    const text = fs.readFileSync(archiveFile, 'utf8');
+    for (const m of text.matchAll(/twitter\s+(\d+)/g)) {
+      archiveIds.add(m[1]);
+    }
+  } catch {
+    /* no archive yet */
+  }
+  if (!archiveIds.size) return new Set();
+
+  const urlByMedia = new Map();
+  try {
+    const files = fs
+      .readdirSync(logsDir)
+      .filter((f) => f.endsWith('.log'));
+    for (const file of files) {
+      const text = fs.readFileSync(path.join(logsDir, file), 'utf8');
+      let currentUrl = '';
+      for (const line of text.split(/\r?\n/)) {
+        let m = line.match(/Extracting URL: (https:\/\/x\.com\/[^/\s]+\/status\/\d+)/);
+        if (m) {
+          currentUrl = m[1];
+          continue;
+        }
+        m = line.match(/\[info\]\s+(\d+):\s+Downloading/);
+        if (m && currentUrl) {
+          urlByMedia.set(m[1], currentUrl);
+          continue;
+        }
+        m = line.match(/^\[download\]\s+(\d+):\s+.+has already been recorded in the archive/);
+        if (m && currentUrl) {
+          urlByMedia.set(m[1], currentUrl);
+          continue;
+        }
+        m = line.match(/\[download\] Destination: .*?(\d{15,20})[^\d]*\.mp4/);
+        if (m && currentUrl) {
+          urlByMedia.set(m[1], currentUrl);
+        }
+      }
+    }
+  } catch {
+    /* no logs yet */
+  }
+
+  const skip = new Set();
+  for (const id of archiveIds) {
+    const url = urlByMedia.get(id);
+    if (url) skip.add(url);
+  }
+  return skip;
 }
 
 async function waitForLogin(page) {
@@ -86,6 +142,25 @@ async function collectLikedVideos(page, username) {
       .forEach((url) => seenUrls.add(url));
   } catch {
     /* no history yet */
+  }
+  if (seenUrls.size === 0) {
+    try {
+      const text = fs.readFileSync(urlsFile, 'utf8');
+      text
+        .split(/\r?\n/)
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .forEach((url) => seenUrls.add(url));
+    } catch {
+      /* no previous batch */
+    }
+  }
+  const archiveSkipUrls = loadArchiveSkipUrls();
+  for (const url of archiveSkipUrls) {
+    seenUrls.add(url);
+  }
+  if (archiveSkipUrls.size > 0) {
+    log(`根据下载记录识别到 ${archiveSkipUrls.size} 条已下载视频`);
   }
   const videoUrls = [];
   let skippedCount = 0;
