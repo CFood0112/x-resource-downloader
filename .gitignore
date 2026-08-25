@@ -6,6 +6,7 @@ videos/
 logs/
 settings.json
 liked_urls.txt
+seen_urls.txt
 manual_urls.txt
 cookies.txt
 archive.txt

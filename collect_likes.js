@@ -11,6 +11,7 @@ const resolveRel = (p) => (path.isAbsolute(p) ? p : path.resolve(root, p));
 const profileDir = resolveRel(config.profileDir);
 const urlsFile = resolveRel(config.urlsFile);
 const cookiesFile = resolveRel(config.cookiesFile);
+const seenUrlsFile = resolveRel(config.seenUrlsFile || 'seen_urls.txt');
 const configuredMax = Number(config.maxLikesToScan) || 500;
 const maxLikes = Number(process.env.COLLECT_MAX_LIKES) || configuredMax;
 const maxScrollAttempts = Number(config.maxScrollAttempts) || 80;
@@ -74,8 +75,20 @@ async function collectLikedVideos(page, username) {
   await page.goto(likesUrl, { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
   await page.waitForSelector('article', { timeout: 60000 }).catch(() => {});
 
-  const seen = new Set();
+  const seenIds = new Set();
+  const seenUrls = new Set();
+  try {
+    const text = fs.readFileSync(seenUrlsFile, 'utf8');
+    text
+      .split(/\r?\n/)
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .forEach((url) => seenUrls.add(url));
+  } catch {
+    /* no history yet */
+  }
   const videoUrls = [];
+  let skippedCount = 0;
   let emptyRounds = 0;
 
   for (let attempt = 0; attempt < maxScrollAttempts; attempt++) {
@@ -112,16 +125,21 @@ async function collectLikedVideos(page, username) {
 
     let newCount = 0;
     for (const item of snapshot) {
-      if (!seen.has(item.id)) {
-        seen.add(item.id);
-        newCount++;
-        if (item.hasVideo) videoUrls.push(item.url);
+      if (seenIds.has(item.id)) continue;
+      seenIds.add(item.id);
+      newCount++;
+      if (!item.hasVideo) continue;
+      if (seenUrls.has(item.url)) {
+        skippedCount++;
+      } else {
+        videoUrls.push(item.url);
+        seenUrls.add(item.url);
       }
     }
 
     emptyRounds = newCount === 0 ? emptyRounds + 1 : 0;
     log(
-      `第 ${attempt + 1}/${maxScrollAttempts} 轮：累计发现 ${seen.size} 条推文，其中视频 ${videoUrls.length} 条`
+      `第 ${attempt + 1}/${maxScrollAttempts} 轮：累计发现 ${seenIds.size} 条推文，其中视频 ${videoUrls.length} 条，已跳过 ${skippedCount} 条旧视频`
     );
 
     if (emptyRounds >= 10) {
@@ -131,6 +149,12 @@ async function collectLikedVideos(page, username) {
 
     await page.evaluate(() => window.scrollBy(0, 2400));
     await sleep(1300 + Math.random() * 900);
+  }
+
+  try {
+    fs.writeFileSync(seenUrlsFile, `${[...seenUrls].join('\n')}\n`, 'utf8');
+  } catch (err) {
+    log(`[collect] 写入已采集记录失败：${err.message}`);
   }
 
   return [...new Set(videoUrls)];

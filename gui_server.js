@@ -217,6 +217,7 @@ function baseState() {
     speed: '',
     eta: '',
     elapsed: 0,
+    progressLine: '',
     logs: [],
     failures: [],
   };
@@ -310,7 +311,7 @@ function runProcess(cmd, args, env, onLine) {
   });
 }
 
-const progressRe = /^\[download\]\s+([\d.]+)% of ~?([\d.]+\w+)\s+at\s+([\d.]+\w+\/s)\s+ETA ([\d:]+|Unknown)/;
+const progressRe = /^\[download\]\s+([\d.]+)% of\s+~?([\d.]+\w+)\s+at\s+([\d.]+\w+\/s)\s+ETA ([\d:]+|Unknown)/;
 const doneRe = /^\[download\]\s+100% of .+ in [\d:]+ at ([\d.]+\w+\/s)/;
 const destRe = /^\[download\] Destination: (.+)$/;
 const itemRe = /^\[download\] Downloading item (\d+) of (\d+)/;
@@ -319,12 +320,23 @@ const infoRe = /^\[info\] (\S+): Downloading/;
 
 function parseDownloadLine(line) {
   if (!job) return;
+
+  const progressMatch = line.match(progressRe);
+  if (progressMatch) {
+    job.state.percent = Number(progressMatch[1]);
+    job.state.speed = progressMatch[3];
+    job.state.eta = progressMatch[4] === 'Unknown' ? '未知' : progressMatch[4];
+    job.state.progressLine = line;
+    pushState();
+    return;
+  }
+
   addLog(line);
-  pushState();
 
   let m = line.match(extractRe);
   if (m) {
     job.state.currentUrl = m[1];
+    pushState();
     return;
   }
 
@@ -333,26 +345,21 @@ function parseDownloadLine(line) {
     job.state.currentFile = path.basename(m[1].trim());
     job.state.fileCount += 1;
     job.state.currentIndex = job.state.fileCount;
+    pushState();
     return;
   }
 
   m = line.match(itemRe);
   if (m) {
     job.state.currentIndex = Number(m[1]);
+    pushState();
     return;
   }
 
   m = line.match(infoRe);
   if (m) {
     job.state.currentFile = m[1];
-    return;
-  }
-
-  m = line.match(progressRe);
-  if (m) {
-    job.state.percent = Number(m[1]);
-    job.state.speed = m[3];
-    job.state.eta = m[4] === 'Unknown' ? '未知' : m[4];
+    pushState();
     return;
   }
 
@@ -361,6 +368,8 @@ function parseDownloadLine(line) {
     job.state.percent = 100;
     job.state.speed = m[1];
     job.state.eta = '';
+    job.state.progressLine = '';
+    pushState();
     return;
   }
 
@@ -370,7 +379,10 @@ function parseDownloadLine(line) {
       message: line.replace(/^ERROR:\s*/, ''),
     });
     pushState(true);
+    return;
   }
+
+  pushState();
 }
 
 async function runDownload(urls, force) {
