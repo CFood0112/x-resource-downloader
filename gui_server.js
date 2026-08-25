@@ -1,0 +1,530 @@
+const http = require('http');
+const fs = require('fs');
+const path = require('path');
+const { spawn, spawnSync } = require('child_process');
+
+const ROOT = __dirname;
+const CONFIG_PATH = path.join(ROOT, 'config.json');
+const SETTINGS_PATH = path.join(ROOT, 'settings.json');
+const LOG_DIR = path.join(ROOT, 'logs');
+const COLLECT_JS = path.join(ROOT, 'collect_likes.js');
+
+const readJson = (p) => {
+  try {
+    return JSON.parse(fs.readFileSync(p, 'utf8'));
+  } catch {
+    return null;
+  }
+};
+
+const writeJson = (p, data) => {
+  fs.writeFileSync(p, JSON.stringify(data, null, 2), 'utf8');
+};
+
+const resolveRel = (p) => (path.isAbsolute(p) ? p : path.resolve(ROOT, p));
+
+let config = readJson(CONFIG_PATH) || {};
+let settings = readJson(SETTINGS_PATH) || {};
+
+const nodePath = resolveRel(config.nodePath || 'node.exe');
+const nodeModules = resolveRel(config.nodeModules || '');
+const pythonPath = resolveRel(config.pythonPath || 'python.exe');
+const urlsFile = resolveRel(config.urlsFile || 'liked_urls.txt');
+const cookiesFile = resolveRel(config.cookiesFile || 'cookies.txt');
+const archiveFile = resolveRel(config.archiveFile || 'archive.txt');
+const manualUrlsFile = path.join(ROOT, 'manual_urls.txt');
+const downloadDir = resolveRel(config.downloadDir || 'videos');
+
+function getFfmpegPath() {
+  try {
+    const res = spawnSync(
+      pythonPath,
+      ['-c', 'import imageio_ffmpeg; print(imageio_ffmpeg.get_ffmpeg_exe())'],
+      { encoding: 'utf8', env: { ...process.env, PYTHONUTF8: '1' } }
+    );
+    return res.stdout.trim();
+  } catch {
+    return '';
+  }
+}
+
+const ffmpegPath = getFfmpegPath();
+
+function buildOutputTemplate() {
+  const subPaths = {
+    flat: '',
+    uploader: '%(uploader|unknown)s/',
+    month: '%(upload_date>%Y-%m|unknown)s/',
+    uploader_month: '%(uploader|unknown)s/%(upload_date>%Y-%m|unknown)s/',
+  };
+  const subPath = subPaths[settings.folderMode] || '';
+  const titlePart = settings.nameMode === 'structured_title' ? ' - %(title).40s' : '';
+  return path.join(
+    downloadDir,
+    `${subPath}%(upload_date|unknown)s - %(uploader|unknown)s - %(id)s${titlePart}%(playlist_index& - {0}|)s.%(ext)s`
+  );
+}
+
+function buildYtdlpArgs(urls, force) {
+  const args = [
+    '--batch-file', urls,
+    '--cookies', cookiesFile,
+    '--ignore-errors',
+    '--newline',
+    '--no-colors',
+    '--retries', '10',
+    '--fragment-retries', '10',
+    '--file-access-retries', '10',
+    '--retry-sleep', '3',
+    '--socket-timeout', '30',
+    '--http-chunk-size', '10M',
+    '--concurrent-fragments', '3',
+    '--yes-playlist',
+    '-f', 'best/bv*+ba/b',
+    '--merge-output-format', 'mp4',
+    '-o', buildOutputTemplate(),
+  ];
+
+  if (force) {
+    args.push('--force-overwrites');
+  } else {
+    args.push('--download-archive', archiveFile);
+  }
+
+  if (settings.proxy === 'off') {
+    args.push('--proxy', '');
+  } else if (settings.proxy === 'custom' && settings.proxyUrl) {
+    args.push('--proxy', settings.proxyUrl);
+  }
+
+  if (ffmpegPath) {
+    args.push('--ffmpeg-location', ffmpegPath);
+  }
+
+  return args;
+}
+
+function baseState() {
+  return {
+    running: false,
+    status: 'idle',
+    message: '',
+    currentFile: '',
+    currentIndex: 0,
+    fileCount: 0,
+    totalLinks: 0,
+    percent: 0,
+    speed: '',
+    eta: '',
+    elapsed: 0,
+    logs: [],
+    failures: [],
+  };
+}
+
+let job = null;
+let jobTimer = null;
+let clients = new Set();
+
+function publicState() {
+  const s = job ? job.state : baseState();
+  return {
+    state: s,
+    settings,
+    config: {
+      username: config.username || '',
+      downloadDir: config.downloadDir || 'videos',
+    },
+  };
+}
+
+function broadcast(payload) {
+  const data = `data: ${JSON.stringify(payload)}\n\n`;
+  for (const res of clients) {
+    try {
+      res.write(data);
+    } catch {
+      clients.delete(res);
+    }
+  }
+}
+
+function addLog(line) {
+  if (!job) return;
+  job.state.logs.push(line);
+  if (job.state.logs.length > 2000) {
+    job.state.logs.splice(0, job.state.logs.length - 2000);
+  }
+}
+
+function lineCount(file) {
+  try {
+    const text = fs.readFileSync(file, 'utf8');
+    return text.split(/\r?\n/).map((s) => s.trim()).filter(Boolean).length;
+  } catch {
+    return 0;
+  }
+}
+
+function killTree(pid) {
+  try {
+    spawnSync('taskkill', ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore' });
+  } catch {
+    /* ignore */
+  }
+}
+
+function runProcess(cmd, args, env, onLine) {
+  return new Promise((resolve) => {
+    const child = spawn(cmd, args, { env, stdio: ['ignore', 'pipe', 'pipe'], shell: false });
+    job.child = child;
+    let buffer = '';
+    const handle = (chunk) => {
+      buffer += chunk.toString('utf8');
+      let idx;
+      while ((idx = buffer.indexOf('\n')) >= 0) {
+        const line = buffer.slice(0, idx).replace(/\r$/, '');
+        buffer = buffer.slice(idx + 1);
+        if (line.trim()) onLine(line);
+      }
+    };
+    child.stdout.on('data', handle);
+    child.stderr.on('data', handle);
+    child.on('error', (err) => {
+      addLog(`[process] ${err.message}`);
+      resolve(1);
+    });
+    child.on('close', (code) => {
+      if (buffer.trim()) onLine(buffer.trim());
+      resolve(code === null ? 1 : code);
+    });
+  });
+}
+
+const progressRe = /^\[download\]\s+([\d.]+)% of ~?([\d.]+\w+)\s+at\s+([\d.]+\w+\/s)\s+ETA ([\d:]+|Unknown)/;
+const doneRe = /^\[download\]\s+100% of .+ in [\d:]+ at ([\d.]+\w+\/s)/;
+const destRe = /^\[download\] Destination: (.+)$/;
+const itemRe = /^\[download\] Downloading item (\d+) of (\d+)/;
+const extractRe = /^\[[^\]]+\] Extracting URL: (.+)$/;
+const infoRe = /^\[info\] (\S+): Downloading/;
+
+function parseDownloadLine(line) {
+  if (!job) return;
+  addLog(line);
+
+  let m = line.match(extractRe);
+  if (m) {
+    job.state.currentUrl = m[1];
+    return;
+  }
+
+  m = line.match(destRe);
+  if (m) {
+    job.state.currentFile = path.basename(m[1].trim());
+    job.state.fileCount += 1;
+    job.state.currentIndex = job.state.fileCount;
+    broadcast({ type: 'state', state: publicState() });
+    return;
+  }
+
+  m = line.match(itemRe);
+  if (m) {
+    job.state.currentIndex = Number(m[1]);
+    return;
+  }
+
+  m = line.match(infoRe);
+  if (m) {
+    job.state.currentFile = m[1];
+    return;
+  }
+
+  m = line.match(progressRe);
+  if (m) {
+    job.state.percent = Number(m[1]);
+    job.state.speed = m[3];
+    job.state.eta = m[4] === 'Unknown' ? '未知' : m[4];
+    broadcast({ type: 'progress', state: publicState() });
+    return;
+  }
+
+  m = line.match(doneRe);
+  if (m) {
+    job.state.percent = 100;
+    job.state.speed = m[1];
+    job.state.eta = '';
+    broadcast({ type: 'progress', state: publicState() });
+    return;
+  }
+
+  if (line.startsWith('ERROR:')) {
+    job.state.failures.push({
+      url: job.state.currentUrl || '',
+      message: line.replace(/^ERROR:\s*/, ''),
+    });
+    broadcast({ type: 'failures', state: publicState() });
+  }
+}
+
+async function runDownload(urls, force) {
+  job.state.status = 'downloading';
+  job.state.message = '正在下载';
+  job.state.currentFile = '';
+  job.state.currentIndex = 0;
+  job.state.fileCount = 0;
+  job.state.percent = 0;
+  job.state.speed = '';
+  job.state.eta = '';
+  job.state.totalLinks = lineCount(urls);
+  addLog(`[job] 开始下载 ${job.state.totalLinks} 条链接`);
+  broadcast({ type: 'state', state: publicState() });
+
+  const args = buildYtdlpArgs(urls, force);
+  const code = await runProcess(
+    pythonPath,
+    ['-m', 'yt_dlp', ...args],
+    { ...process.env, PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8' },
+    parseDownloadLine
+  );
+
+  if (job.cancelled) return;
+  if (code !== 0 && job.state.failures.length === 0) {
+    throw new Error(`下载异常，退出码 ${code}`);
+  }
+  addLog(`[job] 下载结束，失败 ${job.state.failures.length} 条`);
+}
+
+async function runCollect(count) {
+  job.state.status = 'collecting';
+  job.state.message = `正在采集最近 ${count} 条喜欢视频`;
+  addLog(`[job] 开始采集最近 ${count} 条喜欢视频`);
+  broadcast({ type: 'state', state: publicState() });
+
+  const code = await runProcess(
+    nodePath,
+    [COLLECT_JS, CONFIG_PATH],
+    { ...process.env, NODE_PATH: nodeModules, COLLECT_MAX_LIKES: String(count) },
+    (line) => {
+      addLog(line);
+      const m = line.match(/\[collect\] 已检测到登录状态/);
+      if (m) {
+        job.state.message = '已登录，正在滚动喜欢列表';
+        broadcast({ type: 'state', state: publicState() });
+      }
+    }
+  );
+
+  if (job.cancelled) return;
+  if (code !== 0) {
+    throw new Error(`采集失败，退出码 ${code}`);
+  }
+
+  const text = fs.existsSync(urlsFile) ? fs.readFileSync(urlsFile, 'utf8') : '';
+  const urls = text.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+  if (!urls.length) {
+    job.state.status = 'done';
+    job.state.message = '没有找到新的视频推文';
+    addLog('[job] 没有找到新的视频推文');
+    broadcast({ type: 'state', state: publicState() });
+    return;
+  }
+
+  await runDownload(urlsFile, false);
+}
+
+function startJob(mode, body) {
+  if (job) return { ok: false, error: '已有任务在运行' };
+
+  job = {
+    state: baseState(),
+    child: null,
+    cancelled: false,
+    startedAt: Date.now(),
+  };
+  job.state.running = true;
+  job.state.status = 'starting';
+  job.state.message = '准备中';
+
+  jobTimer = setInterval(() => {
+    if (job) {
+      job.state.elapsed = Math.floor((Date.now() - job.startedAt) / 1000);
+    }
+  }, 1000);
+
+  broadcast({ type: 'state', state: publicState() });
+
+  (async () => {
+    try {
+      if (mode === 'manual') {
+        const links = (body.links || [])
+          .map((s) => String(s).trim())
+          .filter((s) => /^https?:\/\//i.test(s));
+        if (!links.length) throw new Error('没有有效的链接');
+        fs.writeFileSync(manualUrlsFile, `${links.join('\n')}\n`, 'utf8');
+        addLog(`[job] 收到 ${links.length} 条手动链接`);
+        await runDownload(manualUrlsFile, !!settings.forceRedownload);
+      } else if (mode === 'download') {
+        if (!fs.existsSync(urlsFile) || !fs.readFileSync(urlsFile, 'utf8').trim()) {
+          throw new Error('还没有采集列表，请先采集');
+        }
+        await runDownload(urlsFile, !!settings.forceRedownload);
+      } else {
+        const count =
+          mode === '50' ? 50 : mode === '100' ? 100 : Number(body.count);
+        if (!Number.isInteger(count) || count <= 0) throw new Error('采集数量无效');
+        await runCollect(count);
+      }
+
+      if (!job.cancelled) {
+        job.state.status = 'done';
+        job.state.message = '完成';
+        addLog('[job] 完成');
+      }
+    } catch (err) {
+      if (job) {
+        job.state.status = 'error';
+        job.state.message = err.message;
+        addLog(`[error] ${err.message}`);
+      }
+    } finally {
+      if (job) {
+        job.state.running = false;
+        clearInterval(jobTimer);
+        writeJobFiles();
+        broadcast({ type: 'state', state: publicState() });
+        job = null;
+      }
+    }
+  })();
+
+  return { ok: true };
+}
+
+function writeJobFiles() {
+  if (!job) return;
+  try {
+    fs.mkdirSync(LOG_DIR, { recursive: true });
+    const stamp = new Date()
+      .toISOString()
+      .replace(/[:.]/g, '-')
+      .slice(0, 19);
+    const runLog = path.join(LOG_DIR, `run_${stamp}.log`);
+    fs.writeFileSync(runLog, `${job.state.logs.join('\n')}\n`, 'utf8');
+
+    if (job.state.failures.length) {
+      const failFile = path.join(LOG_DIR, `failures_${stamp}.txt`);
+      const failText = job.state.failures
+        .map((f) => `${f.url}\n${f.message}\n---`)
+        .join('\n');
+      fs.writeFileSync(failFile, `${failText}\n`, 'utf8');
+      fs.appendFileSync(
+        path.join(LOG_DIR, 'errors.log'),
+        `[${stamp}] ${job.state.failures.length} 条失败\n${failText}\n`,
+        'utf8'
+      );
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+function readBody(req) {
+  return new Promise((resolve) => {
+    let data = '';
+    req.on('data', (chunk) => {
+      data += chunk;
+    });
+    req.on('end', () => {
+      try {
+        resolve(JSON.parse(data || '{}'));
+      } catch {
+        resolve({});
+      }
+    });
+  });
+}
+
+function sendJson(res, code, obj) {
+  const body = JSON.stringify(obj);
+  res.writeHead(code, {
+    'Content-Type': 'application/json; charset=utf-8',
+    'Content-Length': Buffer.byteLength(body),
+  });
+  res.end(body);
+}
+
+const htmlCache = fs.readFileSync(path.join(ROOT, 'gui.html'), 'utf8');
+
+const server = http.createServer(async (req, res) => {
+  const url = req.url.split('?')[0];
+
+  if (req.method === 'GET' && (url === '/' || url === '/index.html')) {
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(htmlCache);
+    return;
+  }
+
+  if (req.method === 'GET' && url === '/favicon.ico') {
+    res.writeHead(204);
+    res.end();
+    return;
+  }
+
+  if (req.method === 'GET' && url === '/api/state') {
+    sendJson(res, 200, publicState());
+    return;
+  }
+
+  if (req.method === 'GET' && url === '/api/events') {
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+    });
+    res.write(`data: ${JSON.stringify({ type: 'hello', ...publicState() })}\n\n`);
+    clients.add(res);
+    req.on('close', () => clients.delete(res));
+    return;
+  }
+
+  if (req.method === 'POST' && url === '/api/settings') {
+    const body = await readBody(req);
+    settings = { ...settings, ...body.settings };
+    writeJson(SETTINGS_PATH, settings);
+    broadcast({ type: 'settings', state: publicState() });
+    sendJson(res, 200, { ok: true });
+    return;
+  }
+
+  if (req.method === 'POST' && url === '/api/run') {
+    const body = await readBody(req);
+    const result = startJob(body.mode || '', body);
+    sendJson(res, result.ok ? 200 : 409, result);
+    return;
+  }
+
+  if (req.method === 'POST' && url === '/api/cancel') {
+    if (job && job.child) {
+      job.cancelled = true;
+      killTree(job.child.pid);
+      job.state.status = 'cancelled';
+      job.state.message = '已停止';
+      addLog('[job] 已停止');
+    }
+    sendJson(res, 200, { ok: true });
+    return;
+  }
+
+  sendJson(res, 404, { error: 'Not Found' });
+});
+
+const PORT = Number(process.env.GUI_PORT) || 8765;
+server.listen(PORT, () => {
+  console.log(`X video downloader GUI: http://127.0.0.1:${PORT}`);
+  if (!process.argv.includes('--no-open')) {
+    spawn('cmd', ['/c', 'start', '', `http://127.0.0.1:${PORT}`], {
+      detached: true,
+      stdio: 'ignore',
+    }).unref();
+  }
+});

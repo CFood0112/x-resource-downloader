@@ -1,0 +1,60 @@
+# Runtime / generated data
+.venv/
+profile/
+downloads/
+videos/
+logs/
+settings.json
+liked_urls.txt
+manual_urls.txt
+cookies.txt
+archive.txt
+
+# OS files
+Thumbs.db
+Desktop.ini
+.DS_Store
+ehthumbs.db
+$RECYCLE.BIN/
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+*.tmp
+
+# Build / dependency caches
+node_modules/
+__pycache__/
+*.py[cod]
+target/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Environment variables / secrets
+.env
+.env.*
+*.key
+*.pem
+*.p12
+*.pfx
+
+# Logs / temporary files
+*.log
+tmp/
+temp/
+
+# Codex / agent tools
+.codex/
+.agents/
+.agent/
+
+# Archives
+*.zip
+*.tar.gz
+*.tgz
+*.rar
+*.7z
