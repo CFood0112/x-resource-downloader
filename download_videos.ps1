@@ -72,6 +72,7 @@ $ytArgs = @(
     '--newline',
     '--no-colors',
     '--retries', '10',
+    '--extractor-retries', '10',
     '--fragment-retries', '10',
     '--file-access-retries', '10',
     '--retry-sleep', '3',
