@@ -1,7 +1,3 @@
 @echo off
-chcp 65001 >nul
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0start_gui.ps1"
-if errorlevel 1 (
-    pause
-)
-exit /b %errorlevel%
+start "" powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "%~dp0start_gui.ps1"
+exit /b 0
