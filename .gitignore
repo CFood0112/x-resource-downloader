@@ -9,6 +9,7 @@ liked_urls.txt
 manual_urls.txt
 cookies.txt
 archive.txt
+.gui.lock
 
 # OS files
 Thumbs.db

@@ -8,6 +8,7 @@ const CONFIG_PATH = path.join(ROOT, 'config.json');
 const SETTINGS_PATH = path.join(ROOT, 'settings.json');
 const LOG_DIR = path.join(ROOT, 'logs');
 const COLLECT_JS = path.join(ROOT, 'collect_likes.js');
+const LOCK_FILE = path.join(ROOT, '.gui.lock');
 
 const readJson = (p) => {
   try {
@@ -34,6 +35,105 @@ const cookiesFile = resolveRel(config.cookiesFile || 'cookies.txt');
 const archiveFile = resolveRel(config.archiveFile || 'archive.txt');
 const manualUrlsFile = path.join(ROOT, 'manual_urls.txt');
 const downloadDir = resolveRel(config.downloadDir || 'videos');
+
+function isPidAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return err.code === 'EPERM';
+  }
+}
+
+function tryAcquireLock() {
+  try {
+    const fd = fs.openSync(LOCK_FILE, 'wx');
+    fs.writeSync(fd, JSON.stringify({ pid: process.pid, startedAt: Date.now() }));
+    fs.closeSync(fd);
+    return { acquired: true };
+  } catch (err) {
+    if (err.code !== 'EEXIST') throw err;
+  }
+
+  let existing = null;
+  try {
+    existing = JSON.parse(fs.readFileSync(LOCK_FILE, 'utf8'));
+  } catch {
+    /* stale or unreadable lock */
+  }
+  if (existing && isPidAlive(existing.pid)) {
+    return { acquired: false, port: existing.port };
+  }
+
+  try {
+    fs.unlinkSync(LOCK_FILE);
+  } catch {
+    /* ignore */
+  }
+  try {
+    const fd = fs.openSync(LOCK_FILE, 'wx');
+    fs.writeSync(fd, JSON.stringify({ pid: process.pid, startedAt: Date.now() }));
+    fs.closeSync(fd);
+    return { acquired: true };
+  } catch {
+    return { acquired: false, port: null };
+  }
+}
+
+function updateLock(port) {
+  try {
+    fs.writeFileSync(
+      LOCK_FILE,
+      JSON.stringify({ pid: process.pid, port, startedAt: Date.now() }),
+      'utf8'
+    );
+  } catch {
+    /* ignore */
+  }
+}
+
+function removeLock() {
+  try {
+    const data = JSON.parse(fs.readFileSync(LOCK_FILE, 'utf8'));
+    if (data.pid === process.pid) fs.unlinkSync(LOCK_FILE);
+  } catch {
+    /* ignore */
+  }
+}
+
+function showAlreadyRunning(port) {
+  const url = `http://127.0.0.1:${port || 8765}`;
+  console.log(`GUI is already running at ${url}`);
+  if (process.env.NO_POPUP !== '1') {
+    const script = `Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.MessageBox]::Show('X 下载器已经在运行。\\n当前地址：${url}', 'X 下载器', 'OK', 'Information')`;
+    spawn('powershell.exe', ['-NoProfile', '-Command', script], {
+      detached: true,
+      stdio: 'ignore',
+    }).unref();
+  }
+}
+
+function probeGui(port) {
+  return new Promise((resolve) => {
+    const req = http.get(
+      { hostname: '127.0.0.1', port, path: '/', timeout: 1500 },
+      (res) => {
+        let body = '';
+        res.on('data', (chunk) => {
+          body += chunk;
+          if (body.length > 8192) req.destroy();
+        });
+        res.on('end', () => resolve(body.includes('X 喜欢视频下载器')));
+        res.on('error', () => resolve(false));
+      }
+    );
+    req.on('error', () => resolve(false));
+    req.on('timeout', () => {
+      req.destroy();
+      resolve(false);
+    });
+  });
+}
 
 function getFfmpegPath() {
   try {
@@ -527,8 +627,13 @@ function startServer(port) {
   }
 
   const server = http.createServer(requestHandler);
-  server.once('error', (err) => {
+  server.once('error', async (err) => {
     if (err.code === 'EADDRINUSE') {
+      if (await probeGui(port)) {
+        removeLock();
+        showAlreadyRunning(port);
+        process.exit(0);
+      }
       console.log(`Port ${port} is in use, trying ${port + 1}...`);
       startServer(port + 1);
     } else {
@@ -536,8 +641,9 @@ function startServer(port) {
       process.exit(1);
     }
   });
-  server.listen(port, () => {
+  server.listen(port, '127.0.0.1', () => {
     const actualPort = server.address().port;
+    updateLock(actualPort);
     console.log(`X video downloader GUI: http://127.0.0.1:${actualPort}`);
     if (!process.argv.includes('--no-open')) {
       spawn('cmd', ['/c', 'start', '', `http://127.0.0.1:${actualPort}`], {
@@ -547,5 +653,21 @@ function startServer(port) {
     }
   });
 }
+
+const lock = tryAcquireLock();
+if (!lock.acquired) {
+  showAlreadyRunning(lock.port);
+  process.exit(0);
+}
+
+process.on('exit', removeLock);
+process.on('SIGINT', () => {
+  removeLock();
+  process.exit(0);
+});
+process.on('SIGTERM', () => {
+  removeLock();
+  process.exit(0);
+});
 
 startServer(preferredPort);
