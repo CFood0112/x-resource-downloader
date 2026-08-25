@@ -281,6 +281,24 @@ function scheduleAutoShutdown() {
   }, 8000);
 }
 
+function sweepClients() {
+  for (const res of clients) {
+    try {
+      res.write(': ping\n\n');
+    } catch {
+      clients.delete(res);
+    }
+  }
+  if (!hasEverHadClient || (job && job.state.running) || shutdownTimer) return;
+  if (clients.size === 0) {
+    shutdownTimer = setTimeout(() => {
+      console.log('GUI closed, shutting down server');
+      removeLock();
+      process.exit(0);
+    }, 8000);
+  }
+}
+
 function addLog(line) {
   if (!job) return;
   job.state.logs.push(line);
@@ -794,3 +812,4 @@ process.on('SIGTERM', () => {
 });
 
 startServer(preferredPort);
+setInterval(sweepClients, 10000);
