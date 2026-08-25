@@ -410,18 +410,48 @@ async function runDownload(urls, force) {
   addLog(`[job] 开始下载 ${job.state.totalLinks} 条链接`);
   broadcast({ type: 'state', ...publicState() });
 
-  const args = buildYtdlpArgs(urls, force);
-  const code = await runProcess(
-    pythonPath,
-    ['-m', 'yt_dlp', ...args],
-    { ...process.env, PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8' },
-    parseDownloadLine
-  );
+  let allFailures = [];
+  let batch = urls;
+  const maxRounds = 3;
 
-  if (job.cancelled) return;
-  if (code !== 0 && job.state.failures.length === 0) {
-    throw new Error(`下载异常，退出码 ${code}`);
+  for (let round = 0; round <= maxRounds && !job.cancelled; round++) {
+    if (round > 0) {
+      const retryUrls = job.state.failures.map((f) => f.url).filter(Boolean);
+      if (!retryUrls.length) break;
+      allFailures.push(...job.state.failures);
+      job.state.failures = [];
+      const retryFile = path.join(ROOT, 'retry_urls.txt');
+      fs.writeFileSync(retryFile, `${retryUrls.join('\n')}\n`, 'utf8');
+      batch = retryFile;
+      job.state.totalLinks = retryUrls.length;
+      addLog(`[job] 第 ${round} 次重试 ${retryUrls.length} 条失败链接`);
+      broadcast({ type: 'state', ...publicState() });
+    }
+
+    const args = buildYtdlpArgs(batch, force);
+    const code = await runProcess(
+      pythonPath,
+      ['-m', 'yt_dlp', ...args],
+      { ...process.env, PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8' },
+      parseDownloadLine
+    );
+
+    if (job.cancelled) return;
+    if (code !== 0 && job.state.failures.length === 0) {
+      throw new Error(`下载异常，退出码 ${code}`);
+    }
+    if (job.state.failures.length === 0) break;
   }
+
+  if (job.state.failures.length) {
+    allFailures.push(...job.state.failures);
+  }
+  const seenFailed = new Set();
+  job.state.failures = allFailures.filter((f) => {
+    if (seenFailed.has(f.url)) return false;
+    seenFailed.add(f.url);
+    return true;
+  });
   addLog(`[job] 下载结束，失败 ${job.state.failures.length} 条`);
 }
 

@@ -9,6 +9,7 @@ settings.json
 liked_urls.txt
 seen_urls.txt
 manual_urls.txt
+retry_urls.txt
 cookies.txt
 cookies_download.txt
 archive.txt
