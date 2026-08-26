@@ -36,7 +36,49 @@ const cookiesFile = resolveRel(config.cookiesFile || 'cookies.txt');
 const downloadCookiesFile = resolveRel(config.downloadCookiesFile || 'cookies_download.txt');
 const archiveFile = resolveRel(config.archiveFile || 'archive.txt');
 const manualUrlsFile = path.join(ROOT, 'manual_urls.txt');
+const retryUrlsFile = path.join(ROOT, 'retry_urls.txt');
+const activeBatchFile = path.join(ROOT, 'active_batch.txt');
+const skipUrlsFile = path.join(ROOT, 'skipped_urls.txt');
 const downloadDir = resolveRel(config.downloadDir || 'videos');
+
+function readSkipSet() {
+  const set = new Set();
+  try {
+    const text = fs.readFileSync(skipUrlsFile, 'utf8');
+    text
+      .split(/\r?\n/)
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .forEach((url) => set.add(url));
+  } catch {
+    /* no skips yet */
+  }
+  return set;
+}
+
+function appendSkipUrl(url) {
+  try {
+    fs.appendFileSync(skipUrlsFile, `${url}\n`, 'utf8');
+  } catch {
+    /* ignore */
+  }
+}
+
+function writeListFile(file, urls) {
+  fs.writeFileSync(file, `${urls.join('\n')}\n`, 'utf8');
+}
+
+function filterBatchFile(file, skipSet) {
+  const urls = fs
+    .readFileSync(file, 'utf8')
+    .split(/\r?\n/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .filter((url) => !skipSet.has(url));
+  if (!urls.length) return null;
+  writeListFile(activeBatchFile, urls);
+  return activeBatchFile;
+}
 
 function isPidAlive(pid) {
   try {
@@ -445,33 +487,30 @@ async function runDownload(urls, force) {
   job.state.percent = 0;
   job.state.speed = '';
   job.state.eta = '';
-  job.state.totalLinks = lineCount(urls);
   if (settings.useDownloadAccount && !fs.existsSync(downloadCookiesFile)) {
     addLog('[job] 未找到小号 Cookie，本次回退使用主账号 Cookie');
   }
-  addLog(`[job] 开始下载 ${job.state.totalLinks} 条链接`);
-  broadcast({ type: 'state', ...publicState() });
 
+  const skipSet = readSkipSet();
   let allFailures = [];
-  let batch = urls;
+  let activeBatch = filterBatchFile(urls, skipSet);
   const maxRounds = 5;
+  let retryRound = 0;
 
-  for (let round = 0; round <= maxRounds && !job.cancelled; round++) {
-    if (round > 0) {
-      await new Promise((resolve) => setTimeout(resolve, 5000));
-      const retryUrls = job.state.failures.map((f) => f.url).filter(Boolean);
-      if (!retryUrls.length) break;
-      allFailures.push(...job.state.failures);
-      job.state.failures = [];
-      const retryFile = path.join(ROOT, 'retry_urls.txt');
-      fs.writeFileSync(retryFile, `${retryUrls.join('\n')}\n`, 'utf8');
-      batch = retryFile;
-      job.state.totalLinks = retryUrls.length;
-      addLog(`[job] 第 ${round} 次重试 ${retryUrls.length} 条失败链接`);
-      broadcast({ type: 'state', ...publicState() });
-    }
+  if (!activeBatch) {
+    job.state.status = 'done';
+    job.state.message = '列表中的视频都已被跳过，无需下载';
+    addLog('[job] 列表中的视频都已被跳过，无需下载');
+    broadcast({ type: 'state', ...publicState() });
+    return;
+  }
 
-    const args = buildYtdlpArgs(batch, force);
+  while (!job.cancelled) {
+    job.state.totalLinks = lineCount(activeBatch);
+    addLog(`[job] 开始下载 ${job.state.totalLinks} 条链接`);
+    broadcast({ type: 'state', ...publicState() });
+
+    const args = buildYtdlpArgs(activeBatch, force);
     const code = await runProcess(
       pythonPath,
       ['-m', 'yt_dlp', ...args],
@@ -480,10 +519,43 @@ async function runDownload(urls, force) {
     );
 
     if (job.cancelled) return;
+
+    if (job.skipRequested) {
+      const skippedUrl = job.state.currentUrl;
+      job.skipRequested = false;
+      if (skippedUrl && !skipSet.has(skippedUrl)) {
+        skipSet.add(skippedUrl);
+        appendSkipUrl(skippedUrl);
+        allFailures.push({ url: skippedUrl, message: '用户已跳过' });
+        job.state.failures = [...allFailures];
+        addLog(`[job] 已跳过：${skippedUrl}`);
+        broadcast({ type: 'state', ...publicState() });
+      }
+      activeBatch = filterBatchFile(activeBatch, skipSet);
+      if (!activeBatch) break;
+      continue;
+    }
+
     if (code !== 0 && job.state.failures.length === 0) {
       throw new Error(`下载异常，退出码 ${code}`);
     }
     if (job.state.failures.length === 0) break;
+
+    const retryUrls = job.state.failures
+      .map((f) => f.url)
+      .filter(Boolean)
+      .filter((url) => !skipSet.has(url));
+    if (!retryUrls.length) break;
+    allFailures.push(...job.state.failures);
+    job.state.failures = [];
+    retryRound++;
+    if (retryRound > maxRounds) break;
+    await new Promise((resolve) => setTimeout(resolve, 5000));
+    writeListFile(retryUrlsFile, retryUrls);
+    activeBatch = retryUrlsFile;
+    job.state.totalLinks = retryUrls.length;
+    addLog(`[job] 第 ${retryRound} 次重试 ${retryUrls.length} 条失败链接`);
+    broadcast({ type: 'state', ...publicState() });
   }
 
   if (job.state.failures.length) {
@@ -549,6 +621,7 @@ function startJob(mode, body) {
     state: baseState(),
     child: null,
     cancelled: false,
+    skipRequested: false,
     startedAt: Date.now(),
   };
   job.state.running = true;
@@ -761,6 +834,17 @@ const requestHandler = async (req, res) => {
       addLog('[job] 已停止');
     }
     sendJson(res, 200, { ok: true });
+    return;
+  }
+
+  if (req.method === 'POST' && url === '/api/skip') {
+    if (job && job.child && job.state.status === 'downloading') {
+      job.skipRequested = true;
+      killTree(job.child.pid);
+      sendJson(res, 200, { ok: true });
+    } else {
+      sendJson(res, 409, { ok: false, error: '当前没有正在下载的视频' });
+    }
     return;
   }
 

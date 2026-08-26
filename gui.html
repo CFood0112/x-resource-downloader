@@ -134,6 +134,15 @@ button.danger:hover:not(:disabled) {
   border-color: var(--danger);
 }
 
+button.warn-btn {
+  border-color: #6b5426;
+  color: var(--warn);
+}
+
+button.warn-btn:hover:not(:disabled) {
+  border-color: var(--warn);
+}
+
 button.secondary {
   width: 100%;
   margin-top: 12px;
@@ -316,6 +325,7 @@ textarea {
         <button data-run="download">只下载新增</button>
         <button data-run="manual">手动链接</button>
         <button data-run="refresh">刷新喜欢</button>
+        <button id="skipCurrent" class="warn-btn" disabled>跳过当前</button>
         <button id="cancel" class="danger" disabled>停止</button>
       </div>
 
@@ -478,6 +488,7 @@ function applyState(payload) {
     b.disabled = running;
   });
   $('cancel').disabled = !running;
+  $('skipCurrent').disabled = !(running && s.status === 'downloading');
   $('saveSettings').disabled = running;
 
   if (payload.settings) {
@@ -536,6 +547,14 @@ document.querySelectorAll('[data-run]').forEach((btn) => {
 
 $('cancel').addEventListener('click', async () => {
   await fetch('/api/cancel', { method: 'POST' });
+});
+
+$('skipCurrent').addEventListener('click', async () => {
+  const res = await fetch('/api/skip', { method: 'POST' });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    alert(data.error || '跳过失败');
+  }
 });
 
 $('saveSettings').addEventListener('click', async () => {
