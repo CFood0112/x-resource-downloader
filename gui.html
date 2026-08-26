@@ -71,6 +71,31 @@ body {
   margin-top: 0;
 }
 
+.tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.tab {
+  width: auto;
+  height: 34px;
+}
+
+.tab.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--panel-2);
+}
+
+.view {
+  display: none;
+}
+
+.view.active {
+  display: block;
+}
+
 .layout {
   display: grid;
   grid-template-columns: 340px 1fr;
@@ -315,6 +340,12 @@ textarea {
     </div>
   </header>
 
+  <div class="tabs">
+    <button id="tabVideo" class="tab active">视频</button>
+    <button id="tabImages" class="tab">图片</button>
+  </div>
+
+  <div id="viewVideo" class="view active">
   <main class="layout">
     <aside class="panel control-panel">
       <h2>任务</h2>
@@ -339,20 +370,6 @@ textarea {
         <label for="manualLinks">手动链接（每行一个）</label>
         <textarea id="manualLinks" rows="6" placeholder="https://x.com/..."></textarea>
       </div>
-
-      <h2>图片下载</h2>
-      <div class="field">
-        <label for="imageSource">图片来源</label>
-        <select id="imageSource">
-          <option value="likes">喜欢</option>
-          <option value="bookmarks">书签</option>
-        </select>
-      </div>
-      <div class="field">
-        <label for="imageCount">数量</label>
-        <input id="imageCount" type="number" min="1" value="50">
-      </div>
-      <button data-run="images">采集并下载图片</button>
 
       <h2>设置</h2>
       <div class="field">
@@ -446,6 +463,73 @@ textarea {
       <textarea id="failures" class="log failure" readonly></textarea>
     </section>
   </main>
+  </div>
+
+  <div id="viewImages" class="view">
+    <main class="layout">
+      <aside class="panel control-panel">
+        <h2>图片任务</h2>
+        <div class="btn-grid">
+          <button data-run="images" data-count="20">最近 20 条</button>
+          <button data-run="images" data-count="50">最近 50 条</button>
+          <button data-run="images" data-count="custom">自定义数量</button>
+          <button data-run="images" data-count="50">只下载新增</button>
+          <button id="cancelImage" class="danger" disabled>停止</button>
+        </div>
+        <div class="field">
+          <label for="imageSource">图片来源</label>
+          <select id="imageSource">
+            <option value="likes">喜欢</option>
+            <option value="bookmarks">书签</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="imageCount">数量</label>
+          <input id="imageCount" type="number" min="1" value="50">
+        </div>
+      </aside>
+      <section class="panel main-panel">
+        <div class="status-row">
+          <div class="stat">
+            <span class="label">状态</span>
+            <span class="value" id="imageStatus">空闲</span>
+          </div>
+          <div class="stat">
+            <span class="label">当前图片</span>
+            <span class="value small" id="imageCurrentFile">-</span>
+          </div>
+          <div class="stat">
+            <span class="label">第几张</span>
+            <span class="value" id="imageIndex">-</span>
+          </div>
+          <div class="stat">
+            <span class="label">网速</span>
+            <span class="value" id="imageSpeed">-</span>
+          </div>
+          <div class="stat">
+            <span class="label">剩余时间</span>
+            <span class="value" id="imageEta">-</span>
+          </div>
+          <div class="stat">
+            <span class="label">已用时</span>
+            <span class="value" id="imageElapsed">-</span>
+          </div>
+        </div>
+        <div class="progress-head">
+          <span>下载进度</span>
+          <span id="imagePercent" class="progress-percent">0%</span>
+        </div>
+        <div class="progress-wrap">
+          <div class="progress" id="imageProgress"></div>
+        </div>
+        <div class="progress-line" id="imageProgressLine">-</div>
+        <h2>运行日志</h2>
+        <textarea id="imageLog" class="log" readonly></textarea>
+        <h2>失败列表</h2>
+        <textarea id="imageFailures" class="log failure" readonly></textarea>
+      </section>
+    </main>
+  </div>
 </div>
 
 <script>
@@ -478,16 +562,17 @@ function fmtTime(sec) {
 function applyState(payload) {
   const s = payload.state;
   lastState = payload;
-
-  $('status').textContent = statusText(s.status);
-  $('status').className = `value status-${s.status}`;
-  $('currentFile').textContent = s.currentFile || '-';
-  $('index').textContent =
+  const indexText =
     s.fileCount > 0 || s.currentIndex > 0
       ? `${s.currentIndex}/${s.totalLinks || '-'}`
       : s.totalLinks > 0
         ? `0/${s.totalLinks}`
         : '-';
+
+  $('status').textContent = statusText(s.status);
+  $('status').className = `value status-${s.status}`;
+  $('currentFile').textContent = s.currentFile || '-';
+  $('index').textContent = indexText;
   $('speed').textContent = s.speed || '-';
   $('eta').textContent = s.eta || '-';
   $('elapsed').textContent = fmtTime(s.elapsed);
@@ -500,11 +585,28 @@ function applyState(payload) {
     .map((f) => `${f.url || '(未知链接)'}\n  ${f.message}`)
     .join('\n');
 
+  $('imageStatus').textContent = statusText(s.status);
+  $('imageStatus').className = `value status-${s.status}`;
+  $('imageCurrentFile').textContent = s.currentFile || '-';
+  $('imageIndex').textContent = indexText;
+  $('imageSpeed').textContent = s.speed || '-';
+  $('imageEta').textContent = s.eta || '-';
+  $('imageElapsed').textContent = fmtTime(s.elapsed);
+  $('imagePercent').textContent = `${Math.round(s.percent || 0)}%`;
+  $('imageProgressLine').textContent = s.progressLine || '-';
+  $('imageProgress').style.width = `${Math.min(100, Math.max(0, s.percent))}%`;
+  $('imageLog').value = s.logs.join('\n');
+  $('imageLog').scrollTop = $('imageLog').scrollHeight;
+  $('imageFailures').value = s.failures
+    .map((f) => `${f.url || '(未知链接)'}\n  ${f.message}`)
+    .join('\n');
+
   const running = !!s.running;
   document.querySelectorAll('[data-run]').forEach((b) => {
     b.disabled = running;
   });
   $('cancel').disabled = !running;
+  $('cancelImage').disabled = !running;
   $('skipCurrent').disabled = !(running && s.status === 'downloading');
   $('saveSettings').disabled = running;
 
@@ -552,7 +654,10 @@ document.querySelectorAll('[data-run]').forEach((btn) => {
     }
     if (mode === 'images') {
       body.source = $('imageSource').value;
-      body.count = Number($('imageCount').value);
+      body.count =
+        btn.dataset.count === 'custom'
+          ? Number($('imageCount').value)
+          : Number(btn.dataset.count || 50);
     }
     const res = await fetch('/api/run', {
       method: 'POST',
@@ -570,6 +675,10 @@ $('cancel').addEventListener('click', async () => {
   await fetch('/api/cancel', { method: 'POST' });
 });
 
+$('cancelImage').addEventListener('click', async () => {
+  await fetch('/api/cancel', { method: 'POST' });
+});
+
 $('skipCurrent').addEventListener('click', async () => {
   const res = await fetch('/api/skip', { method: 'POST' });
   if (!res.ok) {
@@ -577,6 +686,17 @@ $('skipCurrent').addEventListener('click', async () => {
     alert(data.error || '跳过失败');
   }
 });
+
+function switchView(name) {
+  const isVideo = name === 'video';
+  $('viewVideo').classList.toggle('active', isVideo);
+  $('viewImages').classList.toggle('active', !isVideo);
+  $('tabVideo').classList.toggle('active', isVideo);
+  $('tabImages').classList.toggle('active', !isVideo);
+}
+
+$('tabVideo').addEventListener('click', () => switchView('video'));
+$('tabImages').addEventListener('click', () => switchView('images'));
 
 $('saveSettings').addEventListener('click', async () => {
   await saveSettings();

@@ -495,6 +495,40 @@ function parseDownloadLine(line) {
   pushState();
 }
 
+function parseImageLine(line) {
+  if (!job) return;
+  addLog(line);
+
+  let m = line.match(/\[image\] (\d+)\/(\d+) (\S+) \(\d+ bytes\)/);
+  if (m) {
+    job.state.currentIndex = Number(m[1]);
+    job.state.totalLinks = Number(m[2]);
+    job.state.fileCount = Number(m[1]);
+    job.state.currentFile = m[3];
+    job.state.percent = Math.round((Number(m[1]) / Number(m[2])) * 1000) / 10;
+    pushState();
+    return;
+  }
+
+  m = line.match(/\[image\] FAIL (.+)/);
+  if (m) {
+    job.state.failures.push({
+      url: `图片 ${m[1]}`,
+      message: '图片下载失败',
+    });
+    pushState(true);
+    return;
+  }
+
+  if (line.includes('图片下载完成')) {
+    job.state.percent = 100;
+    pushState(true);
+    return;
+  }
+
+  pushState();
+}
+
 async function runDownload(urls, force, ignoreSkips = false) {
   job.state.status = 'downloading';
   job.state.message = '正在下载';
@@ -728,10 +762,7 @@ function startJob(mode, body) {
           nodePath,
           [DOWNLOAD_IMAGES_JS, CONFIG_PATH],
           process.env,
-          (line) => {
-            addLog(line);
-            pushState();
-          }
+          parseImageLine
         );
         if (job.cancelled) return;
         if (c2 !== 0) throw new Error(`图片下载失败，退出码 ${c2}`);
