@@ -224,6 +224,8 @@ async function collectLikedVideos(page, username) {
 
   const videoUrls = [];
   let skippedCount = 0;
+  let newerSkipped = 0;
+  let crossedAnchor = false;
   let emptyRounds = 0;
   let stopCollecting = false;
 
@@ -255,7 +257,12 @@ async function collectLikedVideos(page, username) {
       }
       if (isBackfill && anchorId !== null && BigInt(item.id) >= anchorId) {
         processedIds.add(item.id);
+        newerSkipped++;
         continue;
+      }
+      if (isBackfill && anchorId !== null && !crossedAnchor) {
+        crossedAnchor = true;
+        log('已越过锚点，开始收集更早的视频');
       }
       if (item.hasVideo) {
         if (skipUrls.has(item.url)) {
@@ -289,7 +296,7 @@ async function collectLikedVideos(page, username) {
 
     emptyRounds = newCount === 0 ? emptyRounds + 1 : 0;
     log(
-      `第 ${attempt + 1}/${maxScrollAttempts} 轮：累计发现 ${allSeenIds.size} 条推文，其中视频 ${videoUrls.length} 条，已跳过 ${skippedCount} 条旧视频`
+      `第 ${attempt + 1}/${maxScrollAttempts} 轮：累计发现 ${allSeenIds.size} 条推文，其中视频 ${videoUrls.length} 条，已跳过 ${skippedCount} 条旧视频${isBackfill ? `，已跳过 ${newerSkipped} 条比锚点更新的推文` : ''}`
     );
 
     if (emptyRounds >= 10) {
