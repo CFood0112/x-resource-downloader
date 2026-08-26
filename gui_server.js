@@ -183,6 +183,8 @@ function buildYtdlpArgs(urls, force) {
     '--fragment-retries', '10',
     '--file-access-retries', '10',
     '--retry-sleep', '3',
+    '--sleep-requests', '2',
+    '--sleep-interval', '2',
     '--socket-timeout', '30',
     '--http-chunk-size', '10M',
     '--concurrent-fragments', '3',
@@ -451,10 +453,11 @@ async function runDownload(urls, force) {
 
   let allFailures = [];
   let batch = urls;
-  const maxRounds = 3;
+  const maxRounds = 5;
 
   for (let round = 0; round <= maxRounds && !job.cancelled; round++) {
     if (round > 0) {
+      await new Promise((resolve) => setTimeout(resolve, 5000));
       const retryUrls = job.state.failures.map((f) => f.url).filter(Boolean);
       if (!retryUrls.length) break;
       allFailures.push(...job.state.failures);

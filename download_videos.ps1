@@ -83,6 +83,8 @@ $ytArgs = @(
     '--fragment-retries', '10',
     '--file-access-retries', '10',
     '--retry-sleep', '3',
+    '--sleep-requests', '2',
+    '--sleep-interval', '2',
     '--socket-timeout', '30',
     '--http-chunk-size', '10M',
     '--concurrent-fragments', '3',
