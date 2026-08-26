@@ -498,7 +498,7 @@ async function runDownload(urls, force) {
   addLog(`[job] 下载结束，失败 ${job.state.failures.length} 条`);
 }
 
-async function runCollect(count) {
+async function runCollect(count, stopOnOld = false) {
   job.state.status = 'collecting';
   job.state.message = `正在采集最近 ${count} 条喜欢视频`;
   addLog(`[job] 开始采集最近 ${count} 条喜欢视频`);
@@ -507,7 +507,12 @@ async function runCollect(count) {
   const code = await runProcess(
     nodePath,
     [COLLECT_JS, CONFIG_PATH],
-    { ...process.env, NODE_PATH: nodeModules, COLLECT_MAX_LIKES: String(count) },
+    {
+      ...process.env,
+      NODE_PATH: nodeModules,
+      COLLECT_MAX_LIKES: String(count),
+      COLLECT_STOP_ON_OLD: stopOnOld ? '1' : '0',
+    },
     (line) => {
       addLog(line);
       pushState();
@@ -570,7 +575,7 @@ function startJob(mode, body) {
         addLog(`[job] 收到 ${links.length} 条手动链接`);
         await runDownload(manualUrlsFile, !!settings.forceRedownload);
       } else if (mode === 'refresh') {
-        await runCollect(20);
+        await runCollect(20, true);
       } else if (mode === 'login_download') {
         job.state.status = 'logging_in';
         job.state.message = '正在打开下载小号登录窗口';
@@ -594,7 +599,7 @@ function startJob(mode, body) {
         job.state.message = '下载账号 Cookie 已保存';
         addLog('[job] 下载账号 Cookie 已保存');
       } else if (mode === 'download') {
-        await runCollect(50);
+        await runCollect(50, true);
       } else {
         const count =
           mode === '50' ? 50 : mode === '100' ? 100 : Number(body.count);

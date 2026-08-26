@@ -18,6 +18,7 @@ const configuredMax = Number(config.maxLikesToScan) || 500;
 const maxLikes = Number(process.env.COLLECT_MAX_LIKES) || configuredMax;
 const maxScrollAttempts = Number(config.maxScrollAttempts) || 80;
 const loginTimeoutMs = Number(config.loginTimeoutMs) || 600000;
+const stopOnOld = process.env.COLLECT_STOP_ON_OLD === '1';
 
 function log(msg) {
   console.log(`[collect] ${msg}`);
@@ -186,6 +187,7 @@ async function collectLikedVideos(page, username) {
   const videoUrls = [];
   let skippedCount = 0;
   let emptyRounds = 0;
+  let stopCollecting = false;
 
   for (let attempt = 0; attempt < maxScrollAttempts; attempt++) {
     if (videoUrls.length >= maxLikes) {
@@ -216,6 +218,10 @@ async function collectLikedVideos(page, username) {
       if (item.hasVideo) {
         if (seenUrls.has(item.url)) {
           skippedCount++;
+          if (stopOnOld) {
+            stopCollecting = true;
+            break;
+          }
         } else {
           videoUrls.push(item.url);
           seenUrls.add(item.url);
@@ -233,6 +239,11 @@ async function collectLikedVideos(page, username) {
       }
     }
 
+    if (stopCollecting) {
+      log('发现已下载视频，停止继续检索');
+      break;
+    }
+
     emptyRounds = newCount === 0 ? emptyRounds + 1 : 0;
     log(
       `第 ${attempt + 1}/${maxScrollAttempts} 轮：累计发现 ${allSeenIds.size} 条推文，其中视频 ${videoUrls.length} 条，已跳过 ${skippedCount} 条旧视频`
@@ -247,7 +258,7 @@ async function collectLikedVideos(page, username) {
     await sleep(1300 + Math.random() * 900);
   }
 
-  if (videoUrls.length < maxLikes) {
+  if (!stopCollecting && videoUrls.length < maxLikes) {
     log('重新扫描顶部，补齐可能未及时加载的视频...');
     await page.evaluate(() => window.scrollTo(0, 0));
     await sleep(2500);
