@@ -187,6 +187,7 @@ function buildYtdlpArgs(urls, force) {
     '--sleep-interval', '2',
     '--socket-timeout', '30',
     '--http-chunk-size', '10M',
+    '--legacy-server-connect',
     '--concurrent-fragments', '3',
     '--yes-playlist',
     '-f', 'best/bv*+ba/b',
