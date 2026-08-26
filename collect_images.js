@@ -71,6 +71,8 @@ async function readSnapshot(page) {
       const match = link ? link.href.match(/\/([^/]+)\/status\/(\d+)/) : null;
       const tweetId = match ? match[2] : '';
       const uploader = match ? match[1] : '';
+      const timeEl = article.querySelector('time[datetime]');
+      const date = timeEl ? timeEl.getAttribute('datetime').slice(0, 10) : '';
       const isVideo =
         !!article.querySelector('video') ||
         !!article.querySelector('[data-testid="videoPlayer"]');
@@ -89,7 +91,7 @@ async function readSnapshot(page) {
           ext: format,
         });
       }
-      if (images.length) found.push({ tweetId, uploader, images });
+      if (images.length) found.push({ tweetId, uploader, date, images });
     }
     return found;
   });
@@ -190,6 +192,7 @@ async function main() {
           collected.set(image.mediaId, {
             tweetId: item.tweetId,
             uploader: item.uploader,
+            date: item.date,
             mediaId: image.mediaId,
             url: image.url,
             ext: image.ext,
@@ -218,7 +221,8 @@ async function main() {
     }
 
     const lines = [...collected.values()].map(
-      (item) => `${item.mediaId}\t${item.url}\t${item.ext}\t${item.tweetId}\t${item.uploader}`
+      (item) =>
+        `${item.mediaId}\t${item.url}\t${item.ext}\t${item.tweetId}\t${item.uploader}\t${item.date}`
     );
     fs.writeFileSync(imageUrlsFile, `${lines.join('\n')}\n`, 'utf8');
     log(`已保存 ${lines.length} 张图片链接到 ${path.basename(imageUrlsFile)}`);

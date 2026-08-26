@@ -307,6 +307,7 @@ function baseState() {
   return {
     running: false,
     status: 'idle',
+    kind: '',
     message: '',
     currentFile: '',
     currentIndex: 0,
@@ -721,6 +722,9 @@ function startJob(mode, body) {
     skipRequested: false,
     startedAt: Date.now(),
   };
+  job.state.kind = ['images', 'images_backfill', 'images_manual'].includes(mode)
+    ? 'images'
+    : 'video';
   job.state.running = true;
   job.state.status = 'starting';
   job.state.message = '准备中';
@@ -803,7 +807,7 @@ function startJob(mode, body) {
         const c2 = await runProcess(
           nodePath,
           [DOWNLOAD_IMAGES_JS, CONFIG_PATH],
-          process.env,
+          { ...process.env, IMAGE_SOURCE: imageSource },
           parseImageLine
         );
         if (job.cancelled) return;
@@ -839,7 +843,7 @@ function startJob(mode, body) {
         const c2 = await runProcess(
           nodePath,
           [DOWNLOAD_IMAGES_JS, CONFIG_PATH],
-          process.env,
+          { ...process.env, IMAGE_SOURCE: imageSource },
           parseImageLine
         );
         if (job.cancelled) return;
@@ -881,7 +885,7 @@ function startJob(mode, body) {
         const c2 = await runProcess(
           nodePath,
           [DOWNLOAD_IMAGES_JS, CONFIG_PATH],
-          process.env,
+          { ...process.env, IMAGE_SOURCE: 'manual' },
           parseImageLine
         );
         if (job.cancelled) return;
@@ -1028,6 +1032,20 @@ const requestHandler = async (req, res) => {
     writeJson(SETTINGS_PATH, settings);
     broadcast({ type: 'settings', ...publicState() });
     sendJson(res, 200, { ok: true });
+    return;
+  }
+
+  if (req.method === 'POST' && url === '/api/browse-dir') {
+    const script =
+      "Add-Type -AssemblyName System.Windows.Forms; $f = New-Object System.Windows.Forms.FolderBrowserDialog; $f.Description = '选择下载位置'; if ($f.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $f.SelectedPath }";
+    const res = spawnSync(
+      'powershell.exe',
+      ['-NoProfile', '-STA', '-Command', script],
+      { encoding: 'utf8', timeout: 180000 }
+    );
+    const selected =
+      (res.stdout || '').trim().split(/\r?\n/).filter(Boolean).pop() || '';
+    sendJson(res.status === 0 ? 200 : 500, { ok: res.status === 0, path: selected });
     return;
   }
 

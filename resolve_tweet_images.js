@@ -41,6 +41,8 @@ async function waitForLogin(page) {
 
 async function collectImages(page) {
   return page.evaluate(() => {
+    const timeEl = document.querySelector('time[datetime]');
+    const date = timeEl ? timeEl.getAttribute('datetime').slice(0, 10) : '';
     const images = [];
     for (const img of document.querySelectorAll('img[src*="pbs.twimg.com/media/"]')) {
       const src = img.src;
@@ -52,6 +54,7 @@ async function collectImages(page) {
         mediaId: mediaMatch[1],
         url: `${base}?format=${format}&name=orig`,
         ext: format,
+        date,
       });
     }
     return images;
@@ -97,7 +100,9 @@ async function main() {
       await page.waitForTimeout(2500);
       const images = await collectImages(page);
       for (const image of images) {
-        lines.push(`${image.mediaId}\t${image.url}\t${image.ext}\t${tweetId}\t${uploader}`);
+        lines.push(
+          `${image.mediaId}\t${image.url}\t${image.ext}\t${tweetId}\t${uploader}\t${image.date}`
+        );
       }
       log(`找到 ${images.length} 张图片`);
       await sleep(1000);

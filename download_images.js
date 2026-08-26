@@ -21,7 +21,10 @@ try {
   /* defaults */
 }
 const imageSettings = settings.image || {};
-const baseImageDir = resolveRel(imageSettings.downloadDir || config.imageDir || 'images');
+const imageSource = process.env.IMAGE_SOURCE || 'manual';
+const baseImageDir = resolveRel(
+  path.join(imageSettings.downloadDir || config.imageDir || 'images', imageSource)
+);
 const imageFolderMode = imageSettings.folderMode || 'flat';
 const imageNameMode = imageSettings.nameMode || 'media_id';
 
@@ -68,6 +71,7 @@ function parseEntry(line) {
       ext: parts[2] || 'jpg',
       tweetId: parts[3] || '',
       uploader: parts[4] || '',
+      date: parts[5] || '',
     };
   }
   const url = parts[0];
@@ -76,7 +80,14 @@ function parseEntry(line) {
   const mediaId = mediaMatch
     ? mediaMatch[1]
     : `img_${crypto.createHash('md5').update(url).digest('hex').slice(0, 12)}`;
-  return { mediaId, url, ext: (extMatch ? extMatch[1] : 'jpg'), tweetId: '', uploader: '' };
+  return {
+    mediaId,
+    url,
+    ext: (extMatch ? extMatch[1] : 'jpg'),
+    tweetId: '',
+    uploader: '',
+    date: '',
+  };
 }
 
 async function main() {
@@ -125,8 +136,15 @@ async function main() {
       done++;
       continue;
     }
-    const subDir =
-      imageFolderMode === 'uploader' && item.uploader ? item.uploader : '';
+    const month = (item.date || '').slice(0, 7);
+    let subDir = '';
+    if (imageFolderMode === 'uploader' && item.uploader) {
+      subDir = item.uploader;
+    } else if (imageFolderMode === 'month' && month) {
+      subDir = month;
+    } else if (imageFolderMode === 'uploader_month' && item.uploader && month) {
+      subDir = path.join(item.uploader, month);
+    }
     const dir = subDir ? path.join(baseImageDir, subDir) : baseImageDir;
     fs.mkdirSync(dir, { recursive: true });
     const fileName =

@@ -110,6 +110,22 @@ body {
   margin-top: 18px;
 }
 
+.dir-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.dir-row input {
+  flex: 1;
+}
+
+.browse-btn {
+  width: auto;
+  height: 32px;
+  margin: 0;
+}
+
 .layout {
   display: grid;
   grid-template-columns: 340px 1fr;
@@ -538,7 +554,10 @@ textarea {
         </div>
         <div class="field">
           <label for="videoDownloadDir">下载位置</label>
-          <input id="videoDownloadDir" type="text" value="videos">
+          <div class="dir-row">
+            <input id="videoDownloadDir" type="text" value="videos">
+            <button id="browseVideoDir" class="browse-btn">选择</button>
+          </div>
         </div>
 
         <h2>图片设置</h2>
@@ -547,6 +566,8 @@ textarea {
           <select id="imageFolderMode">
             <option value="flat">全部放在图片目录</option>
             <option value="uploader">按发布者</option>
+            <option value="month">按月份</option>
+            <option value="uploader_month">发布者 + 月份</option>
           </select>
         </div>
         <div class="field">
@@ -558,7 +579,10 @@ textarea {
         </div>
         <div class="field">
           <label for="imageDownloadDir">下载位置</label>
-          <input id="imageDownloadDir" type="text" value="images">
+          <div class="dir-row">
+            <input id="imageDownloadDir" type="text" value="images">
+            <button id="browseImageDir" class="browse-btn">选择</button>
+          </div>
         </div>
 
         <h2>通用设置</h2>
@@ -620,42 +644,60 @@ function fmtTime(sec) {
 function applyState(payload) {
   const s = payload.state;
   lastState = payload;
-  const indexText =
-    s.fileCount > 0 || s.currentIndex > 0
-      ? `${s.currentIndex}/${s.totalLinks || '-'}`
-      : s.totalLinks > 0
-        ? `0/${s.totalLinks}`
+  const kind = s.kind || '';
+  const idlePanel = {
+    status: 'idle',
+    currentFile: '',
+    currentIndex: 0,
+    fileCount: 0,
+    totalLinks: 0,
+    percent: 0,
+    speed: '',
+    eta: '',
+    elapsed: 0,
+    progressLine: '',
+    logs: [],
+    failures: [],
+  };
+  const vs = kind === '' || kind === 'video' ? s : idlePanel;
+  const is = kind === '' || kind === 'images' ? s : idlePanel;
+
+  const indexTextFor = (st) =>
+    st.fileCount > 0 || st.currentIndex > 0
+      ? `${st.currentIndex}/${st.totalLinks || '-'}`
+      : st.totalLinks > 0
+        ? `0/${st.totalLinks}`
         : '-';
 
-  $('status').textContent = statusText(s.status);
-  $('status').className = `value status-${s.status}`;
-  $('currentFile').textContent = s.currentFile || '-';
-  $('index').textContent = indexText;
-  $('speed').textContent = s.speed || '-';
-  $('eta').textContent = s.eta || '-';
-  $('elapsed').textContent = fmtTime(s.elapsed);
-  $('percent').textContent = `${Math.round(s.percent || 0)}%`;
-  $('progressLine').textContent = s.progressLine || '-';
-  $('progress').style.width = `${Math.min(100, Math.max(0, s.percent))}%`;
-  $('log').value = s.logs.join('\n');
+  $('status').textContent = statusText(vs.status);
+  $('status').className = `value status-${vs.status}`;
+  $('currentFile').textContent = vs.currentFile || '-';
+  $('index').textContent = indexTextFor(vs);
+  $('speed').textContent = vs.speed || '-';
+  $('eta').textContent = vs.eta || '-';
+  $('elapsed').textContent = fmtTime(vs.elapsed);
+  $('percent').textContent = `${Math.round(vs.percent || 0)}%`;
+  $('progressLine').textContent = vs.progressLine || '-';
+  $('progress').style.width = `${Math.min(100, Math.max(0, vs.percent))}%`;
+  $('log').value = vs.logs.join('\n');
   $('log').scrollTop = $('log').scrollHeight;
-  $('failures').value = s.failures
+  $('failures').value = vs.failures
     .map((f) => `${f.url || '(未知链接)'}\n  ${f.message}`)
     .join('\n');
 
-  $('imageStatus').textContent = statusText(s.status);
-  $('imageStatus').className = `value status-${s.status}`;
-  $('imageCurrentFile').textContent = s.currentFile || '-';
-  $('imageIndex').textContent = indexText;
-  $('imageSpeed').textContent = s.speed || '-';
-  $('imageEta').textContent = s.eta || '-';
-  $('imageElapsed').textContent = fmtTime(s.elapsed);
-  $('imagePercent').textContent = `${Math.round(s.percent || 0)}%`;
-  $('imageProgressLine').textContent = s.progressLine || '-';
-  $('imageProgress').style.width = `${Math.min(100, Math.max(0, s.percent))}%`;
-  $('imageLog').value = s.logs.join('\n');
+  $('imageStatus').textContent = statusText(is.status);
+  $('imageStatus').className = `value status-${is.status}`;
+  $('imageCurrentFile').textContent = is.currentFile || '-';
+  $('imageIndex').textContent = indexTextFor(is);
+  $('imageSpeed').textContent = is.speed || '-';
+  $('imageEta').textContent = is.eta || '-';
+  $('imageElapsed').textContent = fmtTime(is.elapsed);
+  $('imagePercent').textContent = `${Math.round(is.percent || 0)}%`;
+  $('imageProgressLine').textContent = is.progressLine || '-';
+  $('imageProgress').style.width = `${Math.min(100, Math.max(0, is.percent))}%`;
+  $('imageLog').value = is.logs.join('\n');
   $('imageLog').scrollTop = $('imageLog').scrollHeight;
-  $('imageFailures').value = s.failures
+  $('imageFailures').value = is.failures
     .map((f) => `${f.url || '(未知链接)'}\n  ${f.message}`)
     .join('\n');
 
@@ -807,6 +849,19 @@ $('saveSettings').addEventListener('click', async () => {
   const res = await fetch('/api/state');
   applyState(await res.json());
 });
+
+async function browseDir(inputId) {
+  const res = await fetch('/api/browse-dir', { method: 'POST' });
+  const data = await res.json().catch(() => ({}));
+  if (data.ok && data.path) {
+    $(inputId).value = data.path;
+  } else {
+    alert('未选择目录');
+  }
+}
+
+$('browseVideoDir').addEventListener('click', () => browseDir('videoDownloadDir'));
+$('browseImageDir').addEventListener('click', () => browseDir('imageDownloadDir'));
 
 $('exitGui').addEventListener('click', async () => {
   await fetch('/api/gui-close', { method: 'POST' });
