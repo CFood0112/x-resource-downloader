@@ -377,7 +377,15 @@ textarea {
       </div>
 
       <div class="field">
-        <label for="count">采集数量</label>
+        <label for="videoSource">视频来源</label>
+        <select id="videoSource">
+          <option value="likes">喜欢</option>
+          <option value="bookmarks">书签</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label for="count">数量</label>
         <input id="count" type="number" min="1" value="50">
       </div>
 
@@ -437,15 +445,15 @@ textarea {
   <div id="viewImages" class="view">
     <main class="layout">
       <aside class="panel control-panel">
-        <h2>图片任务</h2>
+        <h2>任务</h2>
         <div class="btn-grid">
           <button data-run="images" data-count="20">最近 20 条</button>
           <button data-run="images" data-count="50">最近 50 条</button>
           <button data-run="images" data-count="custom">自定义数量</button>
           <button data-run="images" data-count="50">只下载新增</button>
+          <button data-run="images_manual">手动链接</button>
           <button data-run="images" data-count="20">刷新图片</button>
           <button data-run="images_backfill" data-count="custom">从最早补录</button>
-          <button data-run="images_manual">手动链接</button>
           <button id="skipCurrentImage" class="warn-btn" disabled>跳过当前</button>
           <button id="cancelImage" class="danger" disabled>停止</button>
         </div>
@@ -462,9 +470,8 @@ textarea {
         </div>
         <div class="field">
           <label for="imageManualLinks">手动链接（每行一个）</label>
-          <textarea id="imageManualLinks" rows="5" placeholder="https://pbs.twimg.com/media/..."></textarea>
+          <textarea id="imageManualLinks" rows="5" placeholder="https://x.com/... 或 https://pbs.twimg.com/media/..."></textarea>
         </div>
-        <button data-run="images_manual">下载指定链接图片</button>
       </aside>
       <section class="panel main-panel">
         <div class="status-row">
@@ -739,6 +746,9 @@ document.querySelectorAll('[data-run]').forEach((btn) => {
         .split(/\r?\n/)
         .map((s) => s.trim())
         .filter(Boolean);
+    }
+    if (['50', '100', 'custom', 'download', 'refresh', 'backfill'].includes(mode)) {
+      body.source = $('videoSource').value;
     }
     const res = await fetch('/api/run', {
       method: 'POST',

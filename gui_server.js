@@ -11,6 +11,7 @@ const COLLECT_JS = path.join(ROOT, 'collect_likes.js');
 const LOGIN_JS = path.join(ROOT, 'login_download_account.js');
 const COLLECT_IMAGES_JS = path.join(ROOT, 'collect_images.js');
 const DOWNLOAD_IMAGES_JS = path.join(ROOT, 'download_images.js');
+const RESOLVE_TWEET_IMAGES_JS = path.join(ROOT, 'resolve_tweet_images.js');
 const LOCK_FILE = path.join(ROOT, '.gui.lock');
 
 const readJson = (p) => {
@@ -64,6 +65,7 @@ const downloadCookiesFile = resolveRel(config.downloadCookiesFile || 'cookies_do
 const archiveFile = resolveRel(config.archiveFile || 'archive.txt');
 const manualUrlsFile = path.join(ROOT, 'manual_urls.txt');
 const imageUrlsFile = resolveRel(config.imageUrlsFile || 'image_urls.txt');
+const manualTweetUrlsFile = path.join(ROOT, 'manual_tweet_urls.txt');
 const retryUrlsFile = path.join(ROOT, 'retry_urls.txt');
 const activeBatchFile = path.join(ROOT, 'active_batch.txt');
 const skipUrlsFile = path.join(ROOT, 'skipped_urls.txt');
@@ -663,7 +665,7 @@ async function runDownload(urls, force, ignoreSkips = false) {
   addLog(`[job] 下载结束，失败 ${job.state.failures.length} 条`);
 }
 
-async function runCollect(count, stopOnOld = false, mode = 'recent') {
+async function runCollect(count, stopOnOld = false, mode = 'recent', source = 'likes') {
   job.state.status = 'collecting';
   job.state.message = `正在采集最近 ${count} 条喜欢视频`;
   addLog(`[job] 开始采集最近 ${count} 条喜欢视频`);
@@ -678,6 +680,7 @@ async function runCollect(count, stopOnOld = false, mode = 'recent') {
       COLLECT_MAX_LIKES: String(count),
       COLLECT_STOP_ON_OLD: stopOnOld ? '1' : '0',
       COLLECT_MODE: mode,
+      COLLECT_SOURCE: source,
     },
     (line) => {
       addLog(line);
@@ -742,7 +745,7 @@ function startJob(mode, body) {
         addLog(`[job] 收到 ${links.length} 条手动链接`);
         await runDownload(manualUrlsFile, !!settings.forceRedownload, true);
       } else if (mode === 'refresh') {
-        await runCollect(20, true);
+        await runCollect(20, true, 'recent', body.source || 'likes');
       } else if (mode === 'login_download') {
         job.state.status = 'logging_in';
         job.state.message = '正在打开下载小号登录窗口';
@@ -766,9 +769,9 @@ function startJob(mode, body) {
         job.state.message = '下载账号 Cookie 已保存';
         addLog('[job] 下载账号 Cookie 已保存');
       } else if (mode === 'download') {
-        await runCollect(50, true);
+        await runCollect(50, true, 'recent', body.source || 'likes');
       } else if (mode === 'backfill') {
-        await runCollect(Number(body.count) || 50, false, 'backfill');
+        await runCollect(Number(body.count) || 50, false, 'backfill', body.source || 'likes');
       } else if (mode === 'images') {
         const imageSource = body.source === 'bookmarks' ? 'bookmarks' : 'likes';
         const imageCount = Number(body.count) || 50;
@@ -846,10 +849,34 @@ function startJob(mode, body) {
           .map((s) => String(s).trim())
           .filter((s) => /^https?:\/\//i.test(s));
         if (!links.length) throw new Error('没有有效的图片链接');
-        fs.writeFileSync(imageUrlsFile, `${links.join('\n')}\n`, 'utf8');
+        const tweetLinks = links.filter((s) => /x\.com\/[^/]+\/status\/\d+/.test(s));
+        const directLinks = links.filter((s) => !tweetLinks.includes(s));
+        if (tweetLinks.length) {
+          fs.writeFileSync(manualTweetUrlsFile, `${tweetLinks.join('\n')}\n`, 'utf8');
+          job.state.status = 'collecting_images';
+          job.state.message = '正在解析推文图片';
+          addLog(`[job] 解析 ${tweetLinks.length} 条推文图片`);
+          broadcast({ type: 'state', ...publicState() });
+          const c1 = await runProcess(
+            nodePath,
+            [RESOLVE_TWEET_IMAGES_JS, CONFIG_PATH],
+            { ...process.env, NODE_PATH: nodeModules },
+            (line) => {
+              addLog(line);
+              pushState();
+            }
+          );
+          if (job.cancelled) return;
+          if (c1 !== 0) throw new Error(`推文图片解析失败，退出码 ${c1}`);
+          if (directLinks.length) {
+            fs.appendFileSync(imageUrlsFile, `${directLinks.join('\n')}\n`, 'utf8');
+          }
+        } else {
+          fs.writeFileSync(imageUrlsFile, `${links.join('\n')}\n`, 'utf8');
+        }
         job.state.status = 'downloading_images';
         job.state.message = '正在下载图片';
-        addLog(`[job] 收到 ${links.length} 条图片链接`);
+        addLog(`[job] 开始下载图片`);
         broadcast({ type: 'state', ...publicState() });
         const c2 = await runProcess(
           nodePath,
@@ -863,7 +890,7 @@ function startJob(mode, body) {
         const count =
           mode === '50' ? 50 : mode === '100' ? 100 : Number(body.count);
         if (!Number.isInteger(count) || count <= 0) throw new Error('采集数量无效');
-        await runCollect(count);
+        await runCollect(count, false, 'recent', body.source || 'likes');
       }
 
       if (!job.cancelled) {

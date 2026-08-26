@@ -21,6 +21,7 @@ const loginTimeoutMs = Number(config.loginTimeoutMs) || 600000;
 const stopOnOld = process.env.COLLECT_STOP_ON_OLD === '1';
 const collectMode = process.env.COLLECT_MODE || 'recent';
 const isBackfill = collectMode === 'backfill';
+const collectSource = process.env.COLLECT_SOURCE === 'bookmarks' ? 'bookmarks' : 'likes';
 const configuredMaxScroll = Number(config.maxScrollAttempts) || 300;
 const envMaxScroll = Number(process.env.COLLECT_MAX_ATTEMPTS);
 const maxScrollAttempts =
@@ -152,9 +153,12 @@ async function readSnapshot(page) {
 }
 
 async function collectLikedVideos(page, username) {
-  const likesUrl = `https://x.com/${username}/likes`;
-  log(`打开喜欢列表：${likesUrl}`);
-  await page.goto(likesUrl, { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
+  const targetUrl =
+    collectSource === 'bookmarks'
+      ? 'https://x.com/i/bookmarks'
+      : `https://x.com/${username}/likes`;
+  log(`打开${collectSource === 'bookmarks' ? '书签' : '喜欢'}列表：${targetUrl}`);
+  await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
   await page.waitForSelector('article', { timeout: 60000 }).catch(() => {});
 
   const processedIds = new Set();
