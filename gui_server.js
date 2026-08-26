@@ -493,7 +493,7 @@ function parseDownloadLine(line) {
   pushState();
 }
 
-async function runDownload(urls, force) {
+async function runDownload(urls, force, ignoreSkips = false) {
   job.state.status = 'downloading';
   job.state.message = '正在下载';
   job.state.currentFile = '';
@@ -506,7 +506,7 @@ async function runDownload(urls, force) {
     addLog('[job] 未找到小号 Cookie，本次回退使用主账号 Cookie');
   }
 
-  const skipSet = readSkipSet();
+  const skipSet = ignoreSkips ? new Set() : readSkipSet();
   let allFailures = [];
   let activeBatch = filterBatchFile(urls, skipSet);
   const maxRounds = 5;
@@ -666,7 +666,7 @@ function startJob(mode, body) {
         if (!links.length) throw new Error('没有有效的链接');
         fs.writeFileSync(manualUrlsFile, `${links.join('\n')}\n`, 'utf8');
         addLog(`[job] 收到 ${links.length} 条手动链接`);
-        await runDownload(manualUrlsFile, !!settings.forceRedownload);
+        await runDownload(manualUrlsFile, !!settings.forceRedownload, true);
       } else if (mode === 'refresh') {
         await runCollect(20, true);
       } else if (mode === 'login_download') {
