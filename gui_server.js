@@ -80,6 +80,21 @@ function filterBatchFile(file, skipSet) {
   return activeBatchFile;
 }
 
+function writeRemainingBatch(file, anchorUrl, skipSet) {
+  const urls = fs
+    .readFileSync(file, 'utf8')
+    .split(/\r?\n/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const idx = urls.indexOf(anchorUrl);
+  const remaining = (idx === -1 ? urls : urls.slice(idx + 1)).filter(
+    (url) => !skipSet.has(url)
+  );
+  if (!remaining.length) return null;
+  writeListFile(activeBatchFile, remaining);
+  return activeBatchFile;
+}
+
 function isPidAlive(pid) {
   try {
     process.kill(pid, 0);
@@ -531,8 +546,12 @@ async function runDownload(urls, force) {
         addLog(`[job] 已跳过：${skippedUrl}`);
         broadcast({ type: 'state', ...publicState() });
       }
-      activeBatch = filterBatchFile(activeBatch, skipSet);
+      activeBatch = skippedUrl
+        ? writeRemainingBatch(activeBatch, skippedUrl, skipSet)
+        : filterBatchFile(activeBatch, skipSet);
       if (!activeBatch) break;
+      addLog(`[job] 从下一个视频继续，剩余 ${lineCount(activeBatch)} 条`);
+      broadcast({ type: 'state', ...publicState() });
       continue;
     }
 
