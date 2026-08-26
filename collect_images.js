@@ -11,6 +11,7 @@ const resolveRel = (p) => (path.isAbsolute(p) ? p : path.resolve(root, p));
 const profileDir = resolveRel(config.profileDir);
 const imageUrlsFile = resolveRel(config.imageUrlsFile || 'image_urls.txt');
 const imageArchiveFile = resolveRel(config.imageArchiveFile || 'image_archive.txt');
+const imageMetaFile = resolveRel(config.imageMetaFile || 'image_meta.txt');
 const source = process.env.IMAGE_SOURCE === 'bookmarks' ? 'bookmarks' : 'likes';
 const imageMode = process.env.IMAGE_MODE === 'backfill' ? 'backfill' : 'recent';
 const maxImages = Number(process.env.IMAGE_MAX) || 50;
@@ -225,6 +226,7 @@ async function main() {
         `${item.mediaId}\t${item.url}\t${item.ext}\t${item.tweetId}\t${item.uploader}\t${item.date}`
     );
     fs.writeFileSync(imageUrlsFile, `${lines.join('\n')}\n`, 'utf8');
+    fs.appendFileSync(imageMetaFile, `${lines.join('\n')}\n`, 'utf8');
     log(`已保存 ${lines.length} 张图片链接到 ${path.basename(imageUrlsFile)}`);
   } finally {
     if (context) await context.close().catch(() => {});

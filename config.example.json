@@ -13,6 +13,7 @@
   "imageDir": "images",
   "imageUrlsFile": "image_urls.txt",
   "imageArchiveFile": "image_archive.txt",
+  "imageMetaFile": "image_meta.txt",
   "urlsFile": "liked_urls.txt",
   "seenUrlsFile": "seen_urls.txt",
   "logsDir": "logs",

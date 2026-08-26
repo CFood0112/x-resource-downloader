@@ -11,6 +11,7 @@ const resolveRel = (p) => (path.isAbsolute(p) ? p : path.resolve(root, p));
 const profileDir = resolveRel(config.profileDir);
 const imageUrlsFile = resolveRel(config.imageUrlsFile || 'image_urls.txt');
 const imageArchiveFile = resolveRel(config.imageArchiveFile || 'image_archive.txt');
+const imageFailedFile = path.join(root, 'image_failed.txt');
 const skipRequestFile = path.join(root, 'image_skip_request.txt');
 
 let settings = {};
@@ -190,7 +191,15 @@ async function main() {
         log(`${done}/${lines.length} ${item.mediaId} (${size} bytes)`);
       } else {
         failed++;
-        log(`FAIL ${item.mediaId} ${result.error || 'download failed'}`);
+        const tweetUrl = item.tweetId
+          ? `https://x.com/${item.uploader || 'x'}/status/${item.tweetId}`
+          : item.url;
+        log(`FAIL ${item.mediaId} ${tweetUrl} ${result.error || 'download failed'}`);
+        fs.appendFileSync(
+          imageFailedFile,
+          `${item.mediaId}\t${tweetUrl}\t${item.url}\t${result.error || 'download failed'}\n`,
+          'utf8'
+        );
       }
     }
   } finally {

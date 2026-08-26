@@ -11,6 +11,7 @@ const resolveRel = (p) => (path.isAbsolute(p) ? p : path.resolve(root, p));
 const profileDir = resolveRel(config.profileDir);
 const manualTweetUrlsFile = resolveRel(config.manualTweetUrlsFile || 'manual_tweet_urls.txt');
 const imageUrlsFile = resolveRel(config.imageUrlsFile || 'image_urls.txt');
+const imageMetaFile = resolveRel(config.imageMetaFile || 'image_meta.txt');
 const loginTimeoutMs = Number(config.loginTimeoutMs) || 600000;
 
 function log(msg) {
@@ -109,6 +110,7 @@ async function main() {
     }
 
     fs.writeFileSync(imageUrlsFile, `${lines.join('\n')}\n`, 'utf8');
+    fs.appendFileSync(imageMetaFile, `${lines.join('\n')}\n`, 'utf8');
     log(`已写入 ${lines.length} 条图片链接到 ${path.basename(imageUrlsFile)}`);
   } finally {
     if (context) await context.close().catch(() => {});

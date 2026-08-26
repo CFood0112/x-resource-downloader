@@ -553,6 +553,16 @@ function parseImageLine(line) {
     return;
   }
 
+  m = line.match(/\[image\] FAIL (\S+) (\S+) (.+)/);
+  if (m) {
+    job.state.failures.push({
+      url: m[2],
+      message: `图片 ${m[1]} 下载失败：${m[3]}`,
+    });
+    pushState(true);
+    return;
+  }
+
   m = line.match(/\[image\] FAIL (.+)/);
   if (m) {
     job.state.failures.push({

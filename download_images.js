@@ -11,6 +11,7 @@ const resolveRel = (p) => (path.isAbsolute(p) ? p : path.resolve(root, p));
 
 const imageUrlsFile = resolveRel(config.imageUrlsFile || 'image_urls.txt');
 const imageArchiveFile = resolveRel(config.imageArchiveFile || 'image_archive.txt');
+const imageFailedFile = path.join(root, 'image_failed.txt');
 const downloadCookiesFile = resolveRel(config.downloadCookiesFile || 'cookies_download.txt');
 const mainCookiesFile = resolveRel(config.cookiesFile || 'cookies.txt');
 
@@ -217,7 +218,15 @@ async function main() {
     }
     if (!ok) {
       failed++;
-      log(`FAIL ${item.mediaId} ${lastError}`);
+      const tweetUrl = item.tweetId
+        ? `https://x.com/${item.uploader || 'x'}/status/${item.tweetId}`
+        : item.url;
+      log(`FAIL ${item.mediaId} ${tweetUrl} ${lastError}`);
+      fs.appendFileSync(
+        imageFailedFile,
+        `${item.mediaId}\t${tweetUrl}\t${item.url}\t${lastError}\n`,
+        'utf8'
+      );
       continue;
     }
     const size = fs.statSync(outFile).size;
