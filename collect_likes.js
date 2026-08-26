@@ -125,13 +125,34 @@ async function resolveUsername(page, cfg) {
   return username;
 }
 
+async function readSnapshot(page) {
+  return page.evaluate(() => {
+    const found = [];
+    for (const article of document.querySelectorAll('article')) {
+      const link = article.querySelector('a[href*="/status/"]');
+      if (!link) continue;
+      const match = link.href.match(/\/[^/]+\/status\/(\d+)/);
+      if (!match) continue;
+      const hasVideo =
+        !!article.querySelector('video') ||
+        !!article.querySelector('[data-testid="videoPlayer"]') ||
+        !!article.querySelector('[data-testid="playButton"]') ||
+        !!article.querySelector('[aria-label="Play"]');
+      found.push({ id: match[1], url: `https://x.com${match[0]}`, hasVideo });
+    }
+    return found;
+  });
+}
+
 async function collectLikedVideos(page, username) {
   const likesUrl = `https://x.com/${username}/likes`;
   log(`打开喜欢列表：${likesUrl}`);
   await page.goto(likesUrl, { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
   await page.waitForSelector('article', { timeout: 60000 }).catch(() => {});
 
-  const seenIds = new Set();
+  const processedIds = new Set();
+  const pendingIds = new Map();
+  const allSeenIds = new Set();
   const seenUrls = new Set();
   try {
     const text = fs.readFileSync(seenUrlsFile, 'utf8');
@@ -183,38 +204,38 @@ async function collectLikedVideos(page, username) {
       continue;
     }
 
-    const snapshot = await page.evaluate(() => {
-      const found = [];
-      for (const article of document.querySelectorAll('article')) {
-        const link = article.querySelector('a[href*="/status/"]');
-        if (!link) continue;
-        const match = link.href.match(/\/[^/]+\/status\/(\d+)/);
-        if (!match) continue;
-        const hasVideo =
-          !!article.querySelector('video') ||
-          !!article.querySelector('[data-testid="videoPlayer"]');
-        found.push({ id: match[1], url: `https://x.com${match[0]}`, hasVideo });
-      }
-      return found;
-    });
+    const snapshot = await readSnapshot(page);
 
     let newCount = 0;
     for (const item of snapshot) {
-      if (seenIds.has(item.id)) continue;
-      seenIds.add(item.id);
-      newCount++;
-      if (!item.hasVideo) continue;
-      if (seenUrls.has(item.url)) {
-        skippedCount++;
+      if (processedIds.has(item.id)) continue;
+      if (!allSeenIds.has(item.id)) {
+        allSeenIds.add(item.id);
+        newCount++;
+      }
+      if (item.hasVideo) {
+        if (seenUrls.has(item.url)) {
+          skippedCount++;
+        } else {
+          videoUrls.push(item.url);
+          seenUrls.add(item.url);
+        }
+        processedIds.add(item.id);
+        pendingIds.delete(item.id);
+        continue;
+      }
+      const attempts = pendingIds.get(item.id) || 0;
+      if (attempts >= 3) {
+        processedIds.add(item.id);
+        pendingIds.delete(item.id);
       } else {
-        videoUrls.push(item.url);
-        seenUrls.add(item.url);
+        pendingIds.set(item.id, attempts + 1);
       }
     }
 
     emptyRounds = newCount === 0 ? emptyRounds + 1 : 0;
     log(
-      `第 ${attempt + 1}/${maxScrollAttempts} 轮：累计发现 ${seenIds.size} 条推文，其中视频 ${videoUrls.length} 条，已跳过 ${skippedCount} 条旧视频`
+      `第 ${attempt + 1}/${maxScrollAttempts} 轮：累计发现 ${allSeenIds.size} 条推文，其中视频 ${videoUrls.length} 条，已跳过 ${skippedCount} 条旧视频`
     );
 
     if (emptyRounds >= 10) {
@@ -224,6 +245,26 @@ async function collectLikedVideos(page, username) {
 
     await page.evaluate(() => window.scrollBy(0, 2400));
     await sleep(1300 + Math.random() * 900);
+  }
+
+  if (videoUrls.length < maxLikes) {
+    log('重新扫描顶部，补齐可能未及时加载的视频...');
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await sleep(2500);
+    for (let pass = 0; pass < 3 && videoUrls.length < maxLikes; pass++) {
+      const topSnapshot = await readSnapshot(page);
+      for (const item of topSnapshot) {
+        if (processedIds.has(item.id) || !item.hasVideo) continue;
+        if (seenUrls.has(item.url)) continue;
+        videoUrls.push(item.url);
+        seenUrls.add(item.url);
+        processedIds.add(item.id);
+      }
+      if (pass < 2) {
+        await page.evaluate(() => window.scrollBy(0, 700));
+        await sleep(1500);
+      }
+    }
   }
 
   try {

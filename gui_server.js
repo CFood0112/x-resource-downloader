@@ -569,6 +569,8 @@ function startJob(mode, body) {
         fs.writeFileSync(manualUrlsFile, `${links.join('\n')}\n`, 'utf8');
         addLog(`[job] 收到 ${links.length} 条手动链接`);
         await runDownload(manualUrlsFile, !!settings.forceRedownload);
+      } else if (mode === 'refresh') {
+        await runCollect(20);
       } else if (mode === 'login_download') {
         job.state.status = 'logging_in';
         job.state.message = '正在打开下载小号登录窗口';
