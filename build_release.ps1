@@ -1,4 +1,8 @@
-﻿$ErrorActionPreference = 'Stop'
+﻿param(
+    [switch]$SkipZip
+)
+
+$ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
 $dst = Join-Path $root 'release\X资源下载器'
 $program = Join-Path $dst 'program'
@@ -71,9 +75,11 @@ if ($bad) {
     throw "Privacy validation failed: $($bad.FullName -join ', ')"
 }
 
+if (-not $SkipZip) {
 Remove-Item -LiteralPath (Join-Path $root 'release\X资源下载器.zip') -Force -ErrorAction SilentlyContinue
 Remove-Item -LiteralPath (Join-Path $root 'release\release.zip') -Force -ErrorAction SilentlyContinue
 Compress-Archive -Path (Join-Path $dst '启动X资源下载器.bat'),(Join-Path $dst '命令行菜单.bat'),(Join-Path $dst 'README.md'),$program -DestinationPath (Join-Path $root 'release\X资源下载器.zip') -CompressionLevel Optimal -Force
 Compress-Archive -Path $dst -DestinationPath (Join-Path $root 'release\release.zip') -CompressionLevel Optimal -Force
+}
 
 Write-Host 'Release build complete.'
