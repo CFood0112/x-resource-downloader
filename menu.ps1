@@ -72,7 +72,8 @@ while ($true) {
             Invoke-DownloadStep
         }
         '4' {
-            Write-Host "== 下载上次采集列表中的新增视频 ==" -ForegroundColor Cyan
+            Write-Host "== 扫描喜欢列表并下载新增视频 ==" -ForegroundColor Cyan
+            Invoke-CollectStep 50
             Invoke-DownloadStep
         }
         '5' {

@@ -594,10 +594,7 @@ function startJob(mode, body) {
         job.state.message = '下载账号 Cookie 已保存';
         addLog('[job] 下载账号 Cookie 已保存');
       } else if (mode === 'download') {
-        if (!fs.existsSync(urlsFile) || !fs.readFileSync(urlsFile, 'utf8').trim()) {
-          throw new Error('还没有采集列表，请先采集');
-        }
-        await runDownload(urlsFile, !!settings.forceRedownload);
+        await runCollect(50);
       } else {
         const count =
           mode === '50' ? 50 : mode === '100' ? 100 : Number(body.count);
