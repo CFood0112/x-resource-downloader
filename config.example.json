@@ -20,6 +20,7 @@
   "cookiesFile": "data/cookies/cookies.txt",
   "archiveFile": "data/lists/archive.txt",
   "backfillPositionFile": "data/lists/backfill_position.txt",
+  "videoMetaFile": "data/lists/video_meta.txt",
   "listsDir": "data/lists",
   "runDir": "data/run"
 }

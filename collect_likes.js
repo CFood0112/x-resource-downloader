@@ -15,6 +15,7 @@ const seenUrlsFile = resolveRel(config.seenUrlsFile || 'seen_urls.txt');
 const skipUrlsFile = resolveRel(config.skipUrlsFile || 'skipped_urls.txt');
 const archiveFile = resolveRel(config.archiveFile || 'archive.txt');
 const backfillPositionFile = resolveRel(config.backfillPositionFile || 'data/lists/backfill_position.txt');
+const videoMetaFile = resolveRel(config.videoMetaFile || 'data/lists/video_meta.txt');
 const logsDir = resolveRel(config.logsDir || 'logs');
 const configuredMax = Number(config.maxLikesToScan) || 500;
 const maxLikes = Number(process.env.COLLECT_MAX_LIKES) || configuredMax;
@@ -49,6 +50,17 @@ function loadArchiveSkipUrls() {
   if (!archiveIds.size) return new Set();
 
   const urlByMedia = new Map();
+  try {
+    const text = fs.readFileSync(videoMetaFile, 'utf8');
+    for (const line of text.split(/\r?\n/)) {
+      const parts = line.trim().split('\t');
+      if (parts.length >= 2 && parts[0] && parts[1]) {
+        urlByMedia.set(parts[1], parts[0]);
+      }
+    }
+  } catch {
+    /* no persistent video meta yet */
+  }
   try {
     const files = fs
       .readdirSync(logsDir)

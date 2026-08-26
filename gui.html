@@ -782,6 +782,12 @@ function renderLog(entries, onlyErrors) {
     .join('\n');
 }
 
+function updateLogTextarea(el, text) {
+  const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+  el.value = text;
+  if (nearBottom) el.scrollTop = el.scrollHeight;
+}
+
 function applyState(payload) {
   const s = payload.state;
   lastState = payload;
@@ -820,8 +826,7 @@ function applyState(payload) {
   $('percent').textContent = `${Math.round(vs.percent || 0)}%`;
   $('progressLine').textContent = vs.progressLine || '-';
   $('progress').style.width = `${Math.min(100, Math.max(0, vs.percent))}%`;
-  $('log').value = renderLog(vs.logEntries || vs.logs, $('onlyErrorsVideo').checked);
-  $('log').scrollTop = $('log').scrollHeight;
+  updateLogTextarea($('log'), renderLog(vs.logEntries || vs.logs, $('onlyErrorsVideo').checked));
   const lastKind = payload.lastFailuresKind || '';
   const lastFailures = payload.lastFailures || [];
   currentVideoFailures = vs.failures.length
@@ -846,8 +851,7 @@ function applyState(payload) {
   $('imagePercent').textContent = `${Math.round(is.percent || 0)}%`;
   $('imageProgressLine').textContent = is.progressLine || '-';
   $('imageProgress').style.width = `${Math.min(100, Math.max(0, is.percent))}%`;
-  $('imageLog').value = renderLog(is.logEntries || is.logs, $('onlyErrorsImage').checked);
-  $('imageLog').scrollTop = $('imageLog').scrollHeight;
+  updateLogTextarea($('imageLog'), renderLog(is.logEntries || is.logs, $('onlyErrorsImage').checked));
   renderFailures('imageFailuresList', currentImageFailures);
   $('fillVideoFailures').disabled = !currentVideoFailures.length;
   $('fillImageFailures').disabled = !currentImageFailures.length;

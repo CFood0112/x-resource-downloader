@@ -83,7 +83,9 @@ const retryUrlsFile = path.join(listsDir, 'retry_urls.txt');
 const activeBatchFile = path.join(listsDir, 'active_batch.txt');
 const skipUrlsFile = path.join(listsDir, 'skipped_urls.txt');
 const imageSkipRequestFile = path.join(listsDir, 'image_skip_request.txt');
+const videoMetaFile = path.join(listsDir, 'video_meta.txt');
 const downloadDir = resolveRel(config.downloadDir || 'videos');
+const videoMetaSeen = new Set();
 
 fs.mkdirSync(listsDir, { recursive: true });
 fs.mkdirSync(runDir, { recursive: true });
@@ -107,6 +109,18 @@ function readSkipSet() {
 function appendSkipUrl(url) {
   try {
     fs.appendFileSync(skipUrlsFile, `${url}\n`, 'utf8');
+  } catch {
+    /* ignore */
+  }
+}
+
+function recordVideoMeta(url, mediaId) {
+  if (!url || !mediaId) return;
+  const key = `${url}\t${mediaId}`;
+  if (videoMetaSeen.has(key)) return;
+  videoMetaSeen.add(key);
+  try {
+    fs.appendFileSync(videoMetaFile, `${key}\n`, 'utf8');
   } catch {
     /* ignore */
   }
@@ -537,7 +551,10 @@ function parseDownloadLine(line) {
   if (m) {
     job.state.currentFile = path.basename(m[1].trim());
     const idMatch = job.state.currentFile.match(/(\d{15,20})/);
-    if (idMatch) job.state.currentMediaId = idMatch[1];
+    if (idMatch) {
+      job.state.currentMediaId = idMatch[1];
+      recordVideoMeta(job.state.currentUrl, idMatch[1]);
+    }
     job.state.fileCount += 1;
     job.state.currentIndex = job.state.fileCount;
     pushState();
@@ -554,6 +571,7 @@ function parseDownloadLine(line) {
   m = line.match(infoRe);
   if (m) {
     job.state.currentFile = m[1];
+    recordVideoMeta(job.state.currentUrl, m[1]);
     pushState();
     return;
   }
@@ -578,6 +596,11 @@ function parseDownloadLine(line) {
     }
     pushState(true);
     return;
+  }
+
+  m = line.match(/^\[download\]\s+(\d+):\s+.+has already been recorded in the archive/);
+  if (m) {
+    recordVideoMeta(job.state.currentUrl, m[1]);
   }
 
   pushState();

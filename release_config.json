@@ -21,5 +21,6 @@
   "logsDir": "logs",
   "cookiesFile": "cookies.txt",
   "archiveFile": "archive.txt",
-  "backfillPositionFile": "lists/backfill_position.txt"
+  "backfillPositionFile": "lists/backfill_position.txt",
+  "videoMetaFile": "lists/video_meta.txt"
 }
