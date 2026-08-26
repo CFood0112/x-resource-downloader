@@ -35,7 +35,7 @@ function Invoke-CollectStep {
 
 function Show-Menu {
     Write-Host ""
-    Write-Host "===== X 喜欢视频批量下载 =====" -ForegroundColor Cyan
+    Write-Host "===== X 资源下载器 =====" -ForegroundColor Cyan
     Write-Host "1. 采集最近 50 条喜欢视频并下载"
     Write-Host "2. 采集最近 100 条喜欢视频并下载"
     Write-Host "3. 自定义采集数量"

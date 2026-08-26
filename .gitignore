@@ -6,6 +6,7 @@ downloads/
 videos/
 images/
 logs/
+release/
 settings.json
 liked_urls.txt
 seen_urls.txt

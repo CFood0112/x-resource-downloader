@@ -1,0 +1,21 @@
+{
+  "username": "",
+  "maxLikesToScan": 500,
+  "maxScrollAttempts": 300,
+  "loginTimeoutMs": 600000,
+  "nodePath": "node",
+  "nodeModules": "node_modules",
+  "pythonPath": ".venv/Scripts/python.exe",
+  "profileDir": "profile",
+  "downloadProfileDir": "profile_download",
+  "downloadCookiesFile": "cookies_download.txt",
+  "downloadDir": "videos",
+  "imageDir": "images",
+  "imageUrlsFile": "image_urls.txt",
+  "imageArchiveFile": "image_archive.txt",
+  "urlsFile": "liked_urls.txt",
+  "seenUrlsFile": "seen_urls.txt",
+  "logsDir": "logs",
+  "cookiesFile": "cookies.txt",
+  "archiveFile": "archive.txt"
+}
