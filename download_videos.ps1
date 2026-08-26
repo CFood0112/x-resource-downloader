@@ -21,18 +21,26 @@ function Resolve-FromRoot([string]$p) {
 $pythonPath = Resolve-FromRoot $config.pythonPath
 $activeUrlsFile = if ($UrlsFile) { Resolve-FromRoot $UrlsFile } else { Resolve-FromRoot $config.urlsFile }
 $archiveFile = Resolve-FromRoot $config.archiveFile
-$downloadDir = Resolve-FromRoot $config.downloadDir
 
 $settingsFile = Join-Path $PSScriptRoot 'settings.json'
 $folderMode = 'flat'
 $nameMode = 'structured'
+$downloadDir = Resolve-FromRoot $config.downloadDir
 $proxyMode = 'auto'
 $proxyUrl = ''
 $useDownloadAccount = $false
 if (Test-Path $settingsFile) {
     $settings = Get-Content $settingsFile -Raw | ConvertFrom-Json
-    $folderMode = $settings.folderMode
-    $nameMode = $settings.nameMode
+    if ($null -ne $settings.video) {
+        $folderMode = $settings.video.folderMode
+        $nameMode = $settings.video.nameMode
+        if ($settings.video.downloadDir) {
+            $downloadDir = Resolve-FromRoot $settings.video.downloadDir
+        }
+    } else {
+        $folderMode = $settings.folderMode
+        $nameMode = $settings.nameMode
+    }
     $proxyMode = $settings.proxy
     $proxyUrl = $settings.proxyUrl
     $useDownloadAccount = [bool]$settings.useDownloadAccount

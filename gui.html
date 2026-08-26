@@ -96,6 +96,20 @@ body {
   display: block;
 }
 
+.settings-wide {
+  grid-column: 1 / -1;
+}
+
+.settings-wide h2 {
+  margin: 0 0 10px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.settings-wide h2:not(:first-child) {
+  margin-top: 18px;
+}
+
 .layout {
   display: grid;
   grid-template-columns: 340px 1fr;
@@ -343,6 +357,7 @@ textarea {
   <div class="tabs">
     <button id="tabVideo" class="tab active">视频</button>
     <button id="tabImages" class="tab">图片</button>
+    <button id="tabSettings" class="tab">设置</button>
   </div>
 
   <div id="viewVideo" class="view active">
@@ -371,52 +386,6 @@ textarea {
         <textarea id="manualLinks" rows="6" placeholder="https://x.com/..."></textarea>
       </div>
 
-      <h2>设置</h2>
-      <div class="field">
-        <label for="folderMode">文件夹结构</label>
-        <select id="folderMode">
-          <option value="flat">全部放在 videos</option>
-          <option value="uploader">按发布者</option>
-          <option value="month">按月份</option>
-          <option value="uploader_month">发布者 + 月份</option>
-        </select>
-      </div>
-
-      <div class="field">
-        <label for="nameMode">命名格式</label>
-        <select id="nameMode">
-          <option value="structured">日期-发布者-ID</option>
-          <option value="structured_title">日期-发布者-ID-短标题</option>
-        </select>
-      </div>
-
-      <div class="field">
-        <label for="proxy">代理</label>
-        <select id="proxy">
-          <option value="auto">自动</option>
-          <option value="off">关闭</option>
-          <option value="custom">自定义</option>
-        </select>
-      </div>
-
-      <div class="field">
-        <label for="proxyUrl">代理地址</label>
-        <input id="proxyUrl" type="text" placeholder="http://127.0.0.1:7890">
-      </div>
-
-      <label class="check">
-        <input id="forceRedownload" type="checkbox">
-        强制重新下载已下载过的视频
-      </label>
-
-      <label class="check">
-        <input id="useDownloadAccount" type="checkbox">
-        使用独立下载账号（小号）
-      </label>
-      <button id="loginDownload" data-run="login_download" class="secondary">登录下载小号</button>
-      <div id="downloadAccountStatus" class="status-note">未登录</div>
-
-      <button id="saveSettings" class="secondary">保存设置</button>
     </aside>
 
     <section class="panel main-panel">
@@ -474,6 +443,10 @@ textarea {
           <button data-run="images" data-count="50">最近 50 条</button>
           <button data-run="images" data-count="custom">自定义数量</button>
           <button data-run="images" data-count="50">只下载新增</button>
+          <button data-run="images" data-count="20">刷新图片</button>
+          <button data-run="images_backfill" data-count="custom">从最早补录</button>
+          <button data-run="images_manual">手动链接</button>
+          <button id="skipCurrentImage" class="warn-btn" disabled>跳过当前</button>
           <button id="cancelImage" class="danger" disabled>停止</button>
         </div>
         <div class="field">
@@ -532,6 +505,79 @@ textarea {
         <textarea id="imageLog" class="log" readonly></textarea>
         <h2>失败列表</h2>
         <textarea id="imageFailures" class="log failure" readonly></textarea>
+      </section>
+    </main>
+  </div>
+
+  <div id="viewSettings" class="view">
+    <main class="layout">
+      <section class="panel settings-wide">
+        <h2>视频设置</h2>
+        <div class="field">
+          <label for="videoFolderMode">文件夹结构</label>
+          <select id="videoFolderMode">
+            <option value="flat">全部放在视频目录</option>
+            <option value="uploader">按发布者</option>
+            <option value="month">按月份</option>
+            <option value="uploader_month">发布者 + 月份</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="videoNameMode">命名格式</label>
+          <select id="videoNameMode">
+            <option value="structured">日期-发布者-ID</option>
+            <option value="structured_title">日期-发布者-ID-短标题</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="videoDownloadDir">下载位置</label>
+          <input id="videoDownloadDir" type="text" value="videos">
+        </div>
+
+        <h2>图片设置</h2>
+        <div class="field">
+          <label for="imageFolderMode">文件夹结构</label>
+          <select id="imageFolderMode">
+            <option value="flat">全部放在图片目录</option>
+            <option value="uploader">按发布者</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="imageNameMode">命名格式</label>
+          <select id="imageNameMode">
+            <option value="media_id">媒体 ID</option>
+            <option value="full">媒体 ID-推文 ID</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="imageDownloadDir">下载位置</label>
+          <input id="imageDownloadDir" type="text" value="images">
+        </div>
+
+        <h2>通用设置</h2>
+        <div class="field">
+          <label for="proxy">代理</label>
+          <select id="proxy">
+            <option value="auto">自动</option>
+            <option value="off">关闭</option>
+            <option value="custom">自定义</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="proxyUrl">代理地址</label>
+          <input id="proxyUrl" type="text" placeholder="http://127.0.0.1:7890">
+        </div>
+        <label class="check">
+          <input id="forceRedownload" type="checkbox">
+          强制重新下载已下载过的视频
+        </label>
+        <label class="check">
+          <input id="useDownloadAccount" type="checkbox">
+          使用独立下载账号（小号）
+        </label>
+        <button id="loginDownload" data-run="login_download" class="secondary">登录下载小号</button>
+        <div id="downloadAccountStatus" class="status-note">未登录</div>
+        <button id="saveSettings" class="secondary">保存设置</button>
       </section>
     </main>
   </div>
@@ -612,12 +658,21 @@ function applyState(payload) {
   });
   $('cancel').disabled = !running;
   $('cancelImage').disabled = !running;
-  $('skipCurrent').disabled = !(running && s.status === 'downloading');
+  const canSkip =
+    running && (s.status === 'downloading' || s.status === 'downloading_images');
+  $('skipCurrent').disabled = !canSkip;
+  $('skipCurrentImage').disabled = !canSkip;
   $('saveSettings').disabled = running;
 
   if (payload.settings) {
-    $('folderMode').value = payload.settings.folderMode || 'flat';
-    $('nameMode').value = payload.settings.nameMode || 'structured';
+    const videoSettings = payload.settings.video || {};
+    const imageSettings = payload.settings.image || {};
+    $('videoFolderMode').value = videoSettings.folderMode || 'flat';
+    $('videoNameMode').value = videoSettings.nameMode || 'structured';
+    $('videoDownloadDir').value = videoSettings.downloadDir || 'videos';
+    $('imageFolderMode').value = imageSettings.folderMode || 'flat';
+    $('imageNameMode').value = imageSettings.nameMode || 'media_id';
+    $('imageDownloadDir').value = imageSettings.downloadDir || 'images';
     $('proxy').value = payload.settings.proxy || 'auto';
     $('proxyUrl').value = payload.settings.proxyUrl || '';
     $('forceRedownload').checked = !!payload.settings.forceRedownload;
@@ -630,8 +685,16 @@ function applyState(payload) {
 
 async function saveSettings() {
   const settings = {
-    folderMode: $('folderMode').value,
-    nameMode: $('nameMode').value,
+    video: {
+      folderMode: $('videoFolderMode').value,
+      nameMode: $('videoNameMode').value,
+      downloadDir: $('videoDownloadDir').value.trim() || 'videos',
+    },
+    image: {
+      folderMode: $('imageFolderMode').value,
+      nameMode: $('imageNameMode').value,
+      downloadDir: $('imageDownloadDir').value.trim() || 'images',
+    },
     proxy: $('proxy').value,
     proxyUrl: $('proxyUrl').value.trim(),
     forceRedownload: $('forceRedownload').checked,
@@ -658,6 +721,13 @@ document.querySelectorAll('[data-run]').forEach((btn) => {
         .filter(Boolean);
     }
     if (mode === 'images') {
+      body.source = $('imageSource').value;
+      body.count =
+        btn.dataset.count === 'custom'
+          ? Number($('imageCount').value)
+          : Number(btn.dataset.count || 50);
+    }
+    if (mode === 'images_backfill') {
       body.source = $('imageSource').value;
       body.count =
         btn.dataset.count === 'custom'
@@ -698,16 +768,29 @@ $('skipCurrent').addEventListener('click', async () => {
   }
 });
 
+$('skipCurrentImage').addEventListener('click', async () => {
+  const res = await fetch('/api/skip', { method: 'POST' });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    alert(data.error || '跳过失败');
+  }
+});
+
 function switchView(name) {
   const isVideo = name === 'video';
+  const isImages = name === 'images';
+  const isSettings = name === 'settings';
   $('viewVideo').classList.toggle('active', isVideo);
-  $('viewImages').classList.toggle('active', !isVideo);
+  $('viewImages').classList.toggle('active', isImages);
+  $('viewSettings').classList.toggle('active', isSettings);
   $('tabVideo').classList.toggle('active', isVideo);
-  $('tabImages').classList.toggle('active', !isVideo);
+  $('tabImages').classList.toggle('active', isImages);
+  $('tabSettings').classList.toggle('active', isSettings);
 }
 
 $('tabVideo').addEventListener('click', () => switchView('video'));
 $('tabImages').addEventListener('click', () => switchView('images'));
+$('tabSettings').addEventListener('click', () => switchView('settings'));
 
 $('saveSettings').addEventListener('click', async () => {
   await saveSettings();

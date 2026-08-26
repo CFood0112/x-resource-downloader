@@ -11,9 +11,19 @@ const resolveRel = (p) => (path.isAbsolute(p) ? p : path.resolve(root, p));
 
 const imageUrlsFile = resolveRel(config.imageUrlsFile || 'image_urls.txt');
 const imageArchiveFile = resolveRel(config.imageArchiveFile || 'image_archive.txt');
-const imageDir = resolveRel(config.imageDir || 'images');
 const downloadCookiesFile = resolveRel(config.downloadCookiesFile || 'cookies_download.txt');
 const mainCookiesFile = resolveRel(config.cookiesFile || 'cookies.txt');
+
+let settings = {};
+try {
+  settings = JSON.parse(fs.readFileSync(path.join(root, 'settings.json'), 'utf8'));
+} catch {
+  /* defaults */
+}
+const imageSettings = settings.image || {};
+const baseImageDir = resolveRel(imageSettings.downloadDir || config.imageDir || 'images');
+const imageFolderMode = imageSettings.folderMode || 'flat';
+const imageNameMode = imageSettings.nameMode || 'media_id';
 
 function log(msg) {
   console.log(`[image] ${msg}`);
@@ -51,8 +61,14 @@ function sleep(ms) {
 
 function parseEntry(line) {
   const parts = line.split('\t');
-  if (parts.length >= 2) {
-    return { mediaId: parts[0], url: parts[1], ext: parts[2] || 'jpg' };
+  if (parts.length >= 3) {
+    return {
+      mediaId: parts[0],
+      url: parts[1],
+      ext: parts[2] || 'jpg',
+      tweetId: parts[3] || '',
+      uploader: parts[4] || '',
+    };
   }
   const url = parts[0];
   const mediaMatch = url.match(/\/media\/([A-Za-z0-9_-]+)/);
@@ -60,19 +76,18 @@ function parseEntry(line) {
   const mediaId = mediaMatch
     ? mediaMatch[1]
     : `img_${crypto.createHash('md5').update(url).digest('hex').slice(0, 12)}`;
-  return { mediaId, url, ext: (extMatch ? extMatch[1] : 'jpg') };
+  return { mediaId, url, ext: (extMatch ? extMatch[1] : 'jpg'), tweetId: '', uploader: '' };
 }
 
 async function main() {
-  fs.mkdirSync(imageDir, { recursive: true });
+  fs.mkdirSync(baseImageDir, { recursive: true });
   const archiveIds = new Set();
   try {
     const text = fs.readFileSync(imageArchiveFile, 'utf8');
-    text
-      .split(/\r?\n/)
-      .map((s) => s.trim())
-      .filter(Boolean)
-      .forEach((id) => archiveIds.add(id));
+    for (const line of text.split(/\r?\n/)) {
+      const parts = line.trim().split('\t');
+      if (parts[0]) archiveIds.add(parts[0]);
+    }
   } catch {
     /* no image archive yet */
   }
@@ -85,16 +100,40 @@ async function main() {
     .map(parseEntry);
 
   const cookieHeader = loadCookieHeader();
+  const skipRequestFile = path.join(root, 'image_skip_request.txt');
   let done = 0;
   let failed = 0;
 
   for (let i = 0; i < lines.length; i++) {
     const item = lines[i];
+    let skipRequest = '';
+    try {
+      skipRequest = fs.readFileSync(skipRequestFile, 'utf8').trim();
+    } catch {
+      /* no skip request */
+    }
+    if (skipRequest === item.mediaId || skipRequest === '*') {
+      try {
+        fs.unlinkSync(skipRequestFile);
+      } catch {
+        /* ignore */
+      }
+      log(`SKIP ${item.mediaId}`);
+      continue;
+    }
     if (archiveIds.has(item.mediaId)) {
       done++;
       continue;
     }
-    const outFile = path.join(imageDir, `${item.mediaId}.${item.ext}`);
+    const subDir =
+      imageFolderMode === 'uploader' && item.uploader ? item.uploader : '';
+    const dir = subDir ? path.join(baseImageDir, subDir) : baseImageDir;
+    fs.mkdirSync(dir, { recursive: true });
+    const fileName =
+      imageNameMode === 'full' && item.tweetId
+        ? `${item.mediaId}_${item.tweetId}`
+        : item.mediaId;
+    const outFile = path.join(dir, `${fileName}.${item.ext}`);
     try {
       const args = [
         '-sS', '-L', '-f',
@@ -116,7 +155,7 @@ async function main() {
       }
       const size = fs.statSync(outFile).size;
       archiveIds.add(item.mediaId);
-      fs.appendFileSync(imageArchiveFile, `${item.mediaId}\n`, 'utf8');
+      fs.appendFileSync(imageArchiveFile, `${item.mediaId}\t${item.tweetId || ''}\n`, 'utf8');
       done++;
       log(`${done}/${lines.length} ${item.mediaId} (${size} bytes)`);
     } catch (err) {

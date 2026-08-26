@@ -15,6 +15,7 @@ active_batch.txt
 skipped_urls.txt
 image_urls.txt
 image_archive.txt
+image_skip_request.txt
 cookies.txt
 cookies_download.txt
 archive.txt

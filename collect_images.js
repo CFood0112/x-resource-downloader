@@ -12,8 +12,11 @@ const profileDir = resolveRel(config.profileDir);
 const imageUrlsFile = resolveRel(config.imageUrlsFile || 'image_urls.txt');
 const imageArchiveFile = resolveRel(config.imageArchiveFile || 'image_archive.txt');
 const source = process.env.IMAGE_SOURCE === 'bookmarks' ? 'bookmarks' : 'likes';
+const imageMode = process.env.IMAGE_MODE === 'backfill' ? 'backfill' : 'recent';
 const maxImages = Number(process.env.IMAGE_MAX) || 50;
-const maxScrollAttempts = Number(config.maxScrollAttempts) || 300;
+const configuredMaxScroll = Number(config.maxScrollAttempts) || 300;
+const maxScrollAttempts =
+  imageMode === 'backfill' ? Math.max(configuredMaxScroll, 300) : configuredMaxScroll;
 const loginTimeoutMs = Number(config.loginTimeoutMs) || 600000;
 
 function log(msg) {
@@ -65,8 +68,9 @@ async function readSnapshot(page) {
     const found = [];
     for (const article of document.querySelectorAll('article')) {
       const link = article.querySelector('a[href*="/status/"]');
-      const match = link ? link.href.match(/\/status\/(\d+)/) : null;
-      const tweetId = match ? match[1] : '';
+      const match = link ? link.href.match(/\/([^/]+)\/status\/(\d+)/) : null;
+      const tweetId = match ? match[2] : '';
+      const uploader = match ? match[1] : '';
       const isVideo =
         !!article.querySelector('video') ||
         !!article.querySelector('[data-testid="videoPlayer"]');
@@ -85,7 +89,7 @@ async function readSnapshot(page) {
           ext: format,
         });
       }
-      if (images.length) found.push({ tweetId, images });
+      if (images.length) found.push({ tweetId, uploader, images });
     }
     return found;
   });
@@ -94,15 +98,32 @@ async function readSnapshot(page) {
 async function main() {
   fs.mkdirSync(profileDir, { recursive: true });
   const archiveIds = new Set();
+  const archiveTweetById = new Map();
   try {
     const text = fs.readFileSync(imageArchiveFile, 'utf8');
-    text
-      .split(/\r?\n/)
-      .map((s) => s.trim())
-      .filter(Boolean)
-      .forEach((id) => archiveIds.add(id));
+    for (const line of text.split(/\r?\n/)) {
+      const parts = line.trim().split('\t');
+      if (!parts[0]) continue;
+      archiveIds.add(parts[0]);
+      if (parts[1]) archiveTweetById.set(parts[0], parts[1]);
+    }
   } catch {
     /* no image archive yet */
+  }
+
+  let anchorId = null;
+  if (imageMode === 'backfill') {
+    let min = null;
+    for (const tweetId of archiveTweetById.values()) {
+      const id = BigInt(tweetId);
+      if (min === null || id < min) min = id;
+    }
+    if (min !== null) {
+      anchorId = min;
+      log(`从最早一张已下载图片所在推文（ID ${anchorId}）开始向更早扫描`);
+    } else {
+      log('未找到已下载图片记录作为起点，本次按最近模式扫描');
+    }
   }
 
   let context;
@@ -153,6 +174,14 @@ async function main() {
       const snapshot = await readSnapshot(page);
       let newCount = 0;
       for (const item of snapshot) {
+        if (
+          imageMode === 'backfill' &&
+          anchorId !== null &&
+          item.tweetId &&
+          BigInt(item.tweetId) >= anchorId
+        ) {
+          continue;
+        }
         for (const image of item.images) {
           if (seenMedia.has(image.mediaId)) continue;
           seenMedia.add(image.mediaId);
@@ -160,6 +189,7 @@ async function main() {
           if (archiveIds.has(image.mediaId)) continue;
           collected.set(image.mediaId, {
             tweetId: item.tweetId,
+            uploader: item.uploader,
             mediaId: image.mediaId,
             url: image.url,
             ext: image.ext,
@@ -178,7 +208,7 @@ async function main() {
         log('连续多轮未发现新图片，继续滚动查找...');
       }
 
-      if (emptyRounds >= 30) {
+      if (emptyRounds >= (imageMode === 'backfill' ? 40 : 30)) {
         log('连续多轮没有新内容，已到达列表底部');
         break;
       }
@@ -188,7 +218,7 @@ async function main() {
     }
 
     const lines = [...collected.values()].map(
-      (item) => `${item.mediaId}\t${item.url}\t${item.ext}`
+      (item) => `${item.mediaId}\t${item.url}\t${item.ext}\t${item.tweetId}\t${item.uploader}`
     );
     fs.writeFileSync(imageUrlsFile, `${lines.join('\n')}\n`, 'utf8');
     log(`已保存 ${lines.length} 张图片链接到 ${path.basename(imageUrlsFile)}`);

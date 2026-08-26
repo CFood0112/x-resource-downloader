@@ -28,7 +28,32 @@ const writeJson = (p, data) => {
 const resolveRel = (p) => (path.isAbsolute(p) ? p : path.resolve(ROOT, p));
 
 let config = readJson(CONFIG_PATH) || {};
-let settings = readJson(SETTINGS_PATH) || {};
+function normalizeSettings(raw) {
+  const legacy = !!(raw && raw.folderMode !== undefined);
+  const video = (raw && raw.video) || {};
+  const image = (raw && raw.image) || {};
+  return {
+    video: {
+      folderMode: video.folderMode || (legacy ? raw.folderMode : 'flat'),
+      nameMode: video.nameMode || (legacy ? raw.nameMode : 'structured'),
+      downloadDir: video.downloadDir || (config.downloadDir || 'videos'),
+    },
+    image: {
+      folderMode: image.folderMode || 'flat',
+      nameMode: image.nameMode || 'media_id',
+      downloadDir: image.downloadDir || (config.imageDir || 'images'),
+    },
+    proxy: (raw && raw.proxy) || 'auto',
+    proxyUrl: (raw && raw.proxyUrl) || '',
+    forceRedownload: !!(raw && raw.forceRedownload),
+    useDownloadAccount: !!(raw && raw.useDownloadAccount),
+  };
+}
+const rawSettings = readJson(SETTINGS_PATH) || {};
+let settings = normalizeSettings(rawSettings);
+if (rawSettings.folderMode !== undefined) {
+  writeJson(SETTINGS_PATH, settings);
+}
 
 const nodePath = resolveRel(config.nodePath || 'node.exe');
 const nodeModules = resolveRel(config.nodeModules || '');
@@ -213,16 +238,18 @@ function getFfmpegPath() {
 const ffmpegPath = getFfmpegPath();
 
 function buildOutputTemplate() {
+  const videoSettings = settings.video || {};
+  const videoDir = resolveRel(videoSettings.downloadDir || config.downloadDir || 'videos');
   const subPaths = {
     flat: '',
     uploader: '%(uploader|unknown)s/',
     month: '%(upload_date>%Y-%m|unknown)s/',
     uploader_month: '%(uploader|unknown)s/%(upload_date>%Y-%m|unknown)s/',
   };
-  const subPath = subPaths[settings.folderMode] || '';
-  const titlePart = settings.nameMode === 'structured_title' ? ' - %(title).40s' : '';
+  const subPath = subPaths[videoSettings.folderMode] || '';
+  const titlePart = videoSettings.nameMode === 'structured_title' ? ' - %(title).40s' : '';
   return path.join(
-    downloadDir,
+    videoDir,
     `${subPath}%(upload_date|unknown)s - %(uploader|unknown)s - %(id)s${titlePart}%(playlist_index& - {0}|)s.%(ext)s`
   );
 }
@@ -308,7 +335,7 @@ function publicState() {
     settings,
     config: {
       username: config.username || '',
-      downloadDir: config.downloadDir || 'videos',
+      downloadDir: (settings.video && settings.video.downloadDir) || config.downloadDir || 'videos',
       downloadAccountReady: fs.existsSync(downloadCookiesFile),
       downloadCookiesFile: path.basename(downloadCookiesFile),
     },
@@ -516,6 +543,16 @@ function parseImageLine(line) {
     job.state.failures.push({
       url: `图片 ${m[1]}`,
       message: '图片下载失败',
+    });
+    pushState(true);
+    return;
+  }
+
+  m = line.match(/\[image\] SKIP (\S+)/);
+  if (m) {
+    job.state.failures.push({
+      url: `图片 ${m[1]}`,
+      message: '用户已跳过',
     });
     pushState(true);
     return;
@@ -747,6 +784,7 @@ function startJob(mode, body) {
             NODE_PATH: nodeModules,
             IMAGE_SOURCE: imageSource,
             IMAGE_MAX: String(imageCount),
+            IMAGE_MODE: 'recent',
           },
           (line) => {
             addLog(line);
@@ -755,6 +793,42 @@ function startJob(mode, body) {
         );
         if (job.cancelled) return;
         if (c1 !== 0) throw new Error(`图片采集失败，退出码 ${c1}`);
+
+        job.state.status = 'downloading_images';
+        job.state.message = '正在下载图片';
+        broadcast({ type: 'state', ...publicState() });
+        const c2 = await runProcess(
+          nodePath,
+          [DOWNLOAD_IMAGES_JS, CONFIG_PATH],
+          process.env,
+          parseImageLine
+        );
+        if (job.cancelled) return;
+        if (c2 !== 0) throw new Error(`图片下载失败，退出码 ${c2}`);
+      } else if (mode === 'images_backfill') {
+        const imageSource = body.source === 'bookmarks' ? 'bookmarks' : 'likes';
+        const imageCount = Number(body.count) || 50;
+        job.state.status = 'collecting_images';
+        job.state.message = '正在从最早补录图片';
+        addLog(`[job] 开始从最早补录${imageSource === 'bookmarks' ? '书签' : '喜欢'}图片，目标 ${imageCount} 张`);
+        broadcast({ type: 'state', ...publicState() });
+        const c1 = await runProcess(
+          nodePath,
+          [COLLECT_IMAGES_JS, CONFIG_PATH],
+          {
+            ...process.env,
+            NODE_PATH: nodeModules,
+            IMAGE_SOURCE: imageSource,
+            IMAGE_MAX: String(imageCount),
+            IMAGE_MODE: 'backfill',
+          },
+          (line) => {
+            addLog(line);
+            pushState();
+          }
+        );
+        if (job.cancelled) return;
+        if (c1 !== 0) throw new Error(`图片补录失败，退出码 ${c1}`);
 
         job.state.status = 'downloading_images';
         job.state.message = '正在下载图片';
@@ -923,7 +997,7 @@ const requestHandler = async (req, res) => {
 
   if (req.method === 'POST' && url === '/api/settings') {
     const body = await readBody(req);
-    settings = { ...settings, ...body.settings };
+    settings = normalizeSettings(body.settings || settings);
     writeJson(SETTINGS_PATH, settings);
     broadcast({ type: 'settings', ...publicState() });
     sendJson(res, 200, { ok: true });
@@ -950,12 +1024,19 @@ const requestHandler = async (req, res) => {
   }
 
   if (req.method === 'POST' && url === '/api/skip') {
-    if (job && job.child && job.state.status === 'downloading') {
+    if (job && job.state.status === 'downloading_images') {
+      fs.writeFileSync(
+        path.join(ROOT, 'image_skip_request.txt'),
+        job.state.currentFile || '*',
+        'utf8'
+      );
+      sendJson(res, 200, { ok: true });
+    } else if (job && job.child && job.state.status === 'downloading') {
       job.skipRequested = true;
       killTree(job.child.pid);
       sendJson(res, 200, { ok: true });
     } else {
-      sendJson(res, 409, { ok: false, error: '当前没有正在下载的视频' });
+      sendJson(res, 409, { ok: false, error: '当前没有正在下载的任务' });
     }
     return;
   }
