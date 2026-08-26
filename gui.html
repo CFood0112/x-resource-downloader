@@ -454,6 +454,7 @@ textarea {
 
       <h2>失败列表</h2>
       <textarea id="failures" class="log failure" readonly></textarea>
+      <button id="fillVideoFailures" class="secondary">失败链接 → 手动链接</button>
     </section>
   </main>
   </div>
@@ -528,6 +529,7 @@ textarea {
         <textarea id="imageLog" class="log" readonly></textarea>
         <h2>失败列表</h2>
         <textarea id="imageFailures" class="log failure" readonly></textarea>
+        <button id="fillImageFailures" class="secondary">失败链接 → 手动链接</button>
       </section>
     </main>
   </div>
@@ -617,6 +619,8 @@ textarea {
 <script>
 const $ = (id) => document.getElementById(id);
 let lastState = null;
+let currentVideoFailures = [];
+let currentImageFailures = [];
 
 function statusText(status) {
   return {
@@ -681,7 +685,19 @@ function applyState(payload) {
   $('progress').style.width = `${Math.min(100, Math.max(0, vs.percent))}%`;
   $('log').value = vs.logs.join('\n');
   $('log').scrollTop = $('log').scrollHeight;
-  $('failures').value = vs.failures
+  const lastKind = payload.lastFailuresKind || '';
+  const lastFailures = payload.lastFailures || [];
+  currentVideoFailures = vs.failures.length
+    ? vs.failures
+    : lastKind === 'video'
+      ? lastFailures
+      : [];
+  currentImageFailures = is.failures.length
+    ? is.failures
+    : lastKind === 'images'
+      ? lastFailures
+      : [];
+  $('failures').value = currentVideoFailures
     .map((f) => `${f.url || '(未知链接)'}\n  ${f.message}`)
     .join('\n');
 
@@ -697,9 +713,11 @@ function applyState(payload) {
   $('imageProgress').style.width = `${Math.min(100, Math.max(0, is.percent))}%`;
   $('imageLog').value = is.logs.join('\n');
   $('imageLog').scrollTop = $('imageLog').scrollHeight;
-  $('imageFailures').value = is.failures
+  $('imageFailures').value = currentImageFailures
     .map((f) => `${f.url || '(未知链接)'}\n  ${f.message}`)
     .join('\n');
+  $('fillVideoFailures').disabled = !currentVideoFailures.length;
+  $('fillImageFailures').disabled = !currentImageFailures.length;
 
   const running = !!s.running;
   document.querySelectorAll('[data-run]').forEach((b) => {
@@ -826,6 +844,20 @@ $('skipCurrentImage').addEventListener('click', async () => {
     const data = await res.json().catch(() => ({}));
     alert(data.error || '跳过失败');
   }
+});
+
+$('fillVideoFailures').addEventListener('click', () => {
+  $('manualLinks').value = currentVideoFailures
+    .map((f) => f.url)
+    .filter(Boolean)
+    .join('\n');
+});
+
+$('fillImageFailures').addEventListener('click', () => {
+  $('imageManualLinks').value = currentImageFailures
+    .map((f) => f.url)
+    .filter(Boolean)
+    .join('\n');
 });
 
 function switchView(name) {

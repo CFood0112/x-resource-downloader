@@ -342,11 +342,15 @@ let lastPushAt = 0;
 let hasEverHadClient = false;
 let shutdownTimer = null;
 let guiCloseRequested = false;
+let lastFailures = [];
+let lastFailuresKind = '';
 
 function publicState() {
   const s = job ? job.state : baseState();
   return {
     state: s,
+    lastFailures,
+    lastFailuresKind,
     settings,
     config: {
       username: config.username || '',
@@ -747,6 +751,8 @@ function startJob(mode, body) {
   job.state.kind = ['images', 'images_backfill', 'images_manual'].includes(mode)
     ? 'images'
     : 'video';
+  lastFailures = [];
+  lastFailuresKind = '';
   job.state.running = true;
   job.state.status = 'starting';
   job.state.message = '准备中';
@@ -935,6 +941,8 @@ function startJob(mode, body) {
         job.state.running = false;
         clearInterval(jobTimer);
         writeJobFiles();
+        lastFailures = job.state.failures;
+        lastFailuresKind = job.state.kind;
         broadcast({ type: 'state', ...publicState() });
         job = null;
       }
