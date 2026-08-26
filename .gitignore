@@ -4,6 +4,7 @@ profile/
 profile_download/
 downloads/
 videos/
+images/
 logs/
 settings.json
 liked_urls.txt
@@ -12,6 +13,8 @@ manual_urls.txt
 retry_urls.txt
 active_batch.txt
 skipped_urls.txt
+image_urls.txt
+image_archive.txt
 cookies.txt
 cookies_download.txt
 archive.txt

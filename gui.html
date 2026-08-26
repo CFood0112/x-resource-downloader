@@ -340,6 +340,20 @@ textarea {
         <textarea id="manualLinks" rows="6" placeholder="https://x.com/..."></textarea>
       </div>
 
+      <h2>图片下载</h2>
+      <div class="field">
+        <label for="imageSource">图片来源</label>
+        <select id="imageSource">
+          <option value="likes">喜欢</option>
+          <option value="bookmarks">书签</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="imageCount">数量</label>
+        <input id="imageCount" type="number" min="1" value="50">
+      </div>
+      <button data-run="images">采集并下载图片</button>
+
       <h2>设置</h2>
       <div class="field">
         <label for="folderMode">文件夹结构</label>
@@ -444,6 +458,8 @@ function statusText(status) {
     starting: '准备中',
     collecting: '采集中',
     downloading: '下载中',
+    collecting_images: '采集中',
+    downloading_images: '下载中',
     done: '完成',
     error: '出错',
     cancelled: '已停止',
@@ -533,6 +549,10 @@ document.querySelectorAll('[data-run]').forEach((btn) => {
         .split(/\r?\n/)
         .map((s) => s.trim())
         .filter(Boolean);
+    }
+    if (mode === 'images') {
+      body.source = $('imageSource').value;
+      body.count = Number($('imageCount').value);
     }
     const res = await fetch('/api/run', {
       method: 'POST',

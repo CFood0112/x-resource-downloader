@@ -9,6 +9,8 @@ const SETTINGS_PATH = path.join(ROOT, 'settings.json');
 const LOG_DIR = path.join(ROOT, 'logs');
 const COLLECT_JS = path.join(ROOT, 'collect_likes.js');
 const LOGIN_JS = path.join(ROOT, 'login_download_account.js');
+const COLLECT_IMAGES_JS = path.join(ROOT, 'collect_images.js');
+const DOWNLOAD_IMAGES_JS = path.join(ROOT, 'download_images.js');
 const LOCK_FILE = path.join(ROOT, '.gui.lock');
 
 const readJson = (p) => {
@@ -695,6 +697,44 @@ function startJob(mode, body) {
         await runCollect(50, true);
       } else if (mode === 'backfill') {
         await runCollect(Number(body.count) || 50, false, 'backfill');
+      } else if (mode === 'images') {
+        const imageSource = body.source === 'bookmarks' ? 'bookmarks' : 'likes';
+        const imageCount = Number(body.count) || 50;
+        job.state.status = 'collecting_images';
+        job.state.message = `正在采集${imageSource === 'bookmarks' ? '书签' : '喜欢'}图片`;
+        addLog(`[job] 开始采集${imageSource === 'bookmarks' ? '书签' : '喜欢'}图片，目标 ${imageCount} 张`);
+        broadcast({ type: 'state', ...publicState() });
+        const c1 = await runProcess(
+          nodePath,
+          [COLLECT_IMAGES_JS, CONFIG_PATH],
+          {
+            ...process.env,
+            NODE_PATH: nodeModules,
+            IMAGE_SOURCE: imageSource,
+            IMAGE_MAX: String(imageCount),
+          },
+          (line) => {
+            addLog(line);
+            pushState();
+          }
+        );
+        if (job.cancelled) return;
+        if (c1 !== 0) throw new Error(`图片采集失败，退出码 ${c1}`);
+
+        job.state.status = 'downloading_images';
+        job.state.message = '正在下载图片';
+        broadcast({ type: 'state', ...publicState() });
+        const c2 = await runProcess(
+          nodePath,
+          [DOWNLOAD_IMAGES_JS, CONFIG_PATH],
+          process.env,
+          (line) => {
+            addLog(line);
+            pushState();
+          }
+        );
+        if (job.cancelled) return;
+        if (c2 !== 0) throw new Error(`图片下载失败，退出码 ${c2}`);
       } else {
         const count =
           mode === '50' ? 50 : mode === '100' ? 100 : Number(body.count);
