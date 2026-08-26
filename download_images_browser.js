@@ -59,45 +59,21 @@ function parseEntry(line) {
 
 async function downloadWithBrowser(context, item, outFile) {
   const page = await context.newPage();
-  const client = await context.newCDPSession(page);
-  await client.send('Network.enable');
-  await client.send('Network.setCacheDisabled', { cacheDisabled: true });
-
-  return new Promise((resolve) => {
-    const timer = setTimeout(() => {
-      page.close().catch(() => {});
-      resolve({ ok: false, error: 'browser download timeout' });
-    }, 60000);
-
-    const onResponse = async (event) => {
-      const url = event.response.url;
-      if (event.type !== 'Image' && !url.includes('pbs.twimg.com/media/')) return;
-      if (event.response.status >= 400) {
-        clearTimeout(timer);
-        page.close().catch(() => {});
-        resolve({ ok: false, error: `http ${event.response.status}` });
-        return;
-      }
-      try {
-        const { body, base64Encoded } = await client.send('Network.getResponseBody', {
-          requestId: event.requestId,
-        });
-        clearTimeout(timer);
-        fs.writeFileSync(outFile, Buffer.from(body, base64Encoded ? 'base64' : 'utf8'));
-        page.close().catch(() => {});
-        resolve({ ok: true });
-      } catch (err) {
-        clearTimeout(timer);
-        page.close().catch(() => {});
-        resolve({ ok: false, error: err.message });
-      }
-    };
-
-    client.on('Network.responseReceived', onResponse);
-    page
-      .goto(item.url, { waitUntil: 'commit', timeout: 60000 })
-      .catch(() => {});
-  });
+  try {
+    await page.goto(item.url, { waitUntil: 'load', timeout: 60000 });
+    const bytes = await page.evaluate(async () => {
+      const res = await fetch(window.location.href, { credentials: 'include' });
+      if (!res.ok) throw new Error(`http ${res.status}`);
+      const buf = await res.arrayBuffer();
+      return Array.from(new Uint8Array(buf));
+    });
+    fs.writeFileSync(outFile, Buffer.from(bytes));
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  } finally {
+    page.close().catch(() => {});
+  }
 }
 
 async function main() {
