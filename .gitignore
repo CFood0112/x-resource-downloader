@@ -23,6 +23,7 @@ cookies_download.txt
 archive.txt
 .gui.lock
 gui_ready.txt
+test_browser_config.json
 
 # OS files
 Thumbs.db

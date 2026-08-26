@@ -169,17 +169,28 @@ async function main() {
         ? `${item.mediaId}_${item.tweetId}`
         : item.mediaId;
     const outFile = path.join(dir, `${fileName}.${item.ext}`);
-    try {
-      const pyRes = spawnSync(
-        pythonPath,
-        [path.join(root, 'download_image.py'), item.url, outFile, cookieFile],
-        { encoding: 'buffer', stdio: ['ignore', 'ignore', 'pipe'], timeout: 90000 }
-      );
-      let lastError = pyRes.stderr ? pyRes.stderr.toString().trim() : 'python error';
-      if (pyRes.status !== 0 || !fs.existsSync(outFile)) {
+    let lastError = '';
+    let ok = false;
+    for (let attempt = 0; attempt < 3 && !ok; attempt++) {
+      try {
+        if (fs.existsSync(outFile)) fs.unlinkSync(outFile);
+      } catch {
+        /* ignore */
+      }
+      try {
+        const pyRes = spawnSync(
+          pythonPath,
+          [path.join(root, 'download_image.py'), item.url, outFile, cookieFile],
+          { encoding: 'buffer', stdio: ['ignore', 'ignore', 'pipe'], timeout: 90000 }
+        );
+        lastError = pyRes.stderr ? pyRes.stderr.toString().trim() : 'python error';
+        if (pyRes.status === 0 && fs.existsSync(outFile) && fs.statSync(outFile).size) {
+          ok = true;
+          break;
+        }
         const args = [
           '-sS', '-L', '-f',
-          '--connect-timeout', '20',
+          '--connect-timeout', '30',
           '--max-time', '120',
           '-A',
           'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36',
@@ -195,21 +206,25 @@ async function main() {
           timeout: 90000,
         });
         lastError = curlRes.stderr ? curlRes.stderr.toString().trim() : 'curl error';
+        if (curlRes.status === 0 && fs.existsSync(outFile) && fs.statSync(outFile).size) {
+          ok = true;
+          break;
+        }
+      } catch (err) {
+        lastError = err.message;
       }
-      if (!fs.existsSync(outFile) || !fs.statSync(outFile).size) {
-        failed++;
-        log(`FAIL ${item.mediaId} ${lastError}`);
-        continue;
-      }
-      const size = fs.statSync(outFile).size;
-      archiveIds.add(item.mediaId);
-      fs.appendFileSync(imageArchiveFile, `${item.mediaId}\t${item.tweetId || ''}\n`, 'utf8');
-      done++;
-      log(`${done}/${lines.length} ${item.mediaId} (${size} bytes)`);
-    } catch (err) {
-      failed++;
-      log(`FAIL ${item.mediaId} ${err.message}`);
+      if (!ok && attempt < 2) await sleep(2000 * (attempt + 1));
     }
+    if (!ok) {
+      failed++;
+      log(`FAIL ${item.mediaId} ${lastError}`);
+      continue;
+    }
+    const size = fs.statSync(outFile).size;
+    archiveIds.add(item.mediaId);
+    fs.appendFileSync(imageArchiveFile, `${item.mediaId}\t${item.tweetId || ''}\n`, 'utf8');
+    done++;
+    log(`${done}/${lines.length} ${item.mediaId} (${size} bytes)`);
     await sleep(300);
   }
 

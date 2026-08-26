@@ -11,6 +11,7 @@ const COLLECT_JS = path.join(ROOT, 'collect_likes.js');
 const LOGIN_JS = path.join(ROOT, 'login_download_account.js');
 const COLLECT_IMAGES_JS = path.join(ROOT, 'collect_images.js');
 const DOWNLOAD_IMAGES_JS = path.join(ROOT, 'download_images.js');
+const DOWNLOAD_IMAGES_BROWSER_JS = path.join(ROOT, 'download_images_browser.js');
 const RESOLVE_TWEET_IMAGES_JS = path.join(ROOT, 'resolve_tweet_images.js');
 const LOCK_FILE = path.join(ROOT, '.gui.lock');
 
@@ -817,7 +818,7 @@ function startJob(mode, body) {
         broadcast({ type: 'state', ...publicState() });
         const c2 = await runProcess(
           nodePath,
-          [DOWNLOAD_IMAGES_JS, CONFIG_PATH],
+          [DOWNLOAD_IMAGES_BROWSER_JS, CONFIG_PATH],
           { ...process.env, IMAGE_SOURCE: imageSource },
           parseImageLine
         );
@@ -853,7 +854,7 @@ function startJob(mode, body) {
         broadcast({ type: 'state', ...publicState() });
         const c2 = await runProcess(
           nodePath,
-          [DOWNLOAD_IMAGES_JS, CONFIG_PATH],
+          [DOWNLOAD_IMAGES_BROWSER_JS, CONFIG_PATH],
           { ...process.env, IMAGE_SOURCE: imageSource },
           parseImageLine
         );
@@ -895,7 +896,7 @@ function startJob(mode, body) {
         broadcast({ type: 'state', ...publicState() });
         const c2 = await runProcess(
           nodePath,
-          [DOWNLOAD_IMAGES_JS, CONFIG_PATH],
+          [DOWNLOAD_IMAGES_BROWSER_JS, CONFIG_PATH],
           { ...process.env, IMAGE_SOURCE: 'manual' },
           parseImageLine
         );
