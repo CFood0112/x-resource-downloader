@@ -570,7 +570,7 @@ async function runDownload(urls, force) {
   addLog(`[job] 下载结束，失败 ${job.state.failures.length} 条`);
 }
 
-async function runCollect(count, stopOnOld = false) {
+async function runCollect(count, stopOnOld = false, mode = 'recent') {
   job.state.status = 'collecting';
   job.state.message = `正在采集最近 ${count} 条喜欢视频`;
   addLog(`[job] 开始采集最近 ${count} 条喜欢视频`);
@@ -584,6 +584,7 @@ async function runCollect(count, stopOnOld = false) {
       NODE_PATH: nodeModules,
       COLLECT_MAX_LIKES: String(count),
       COLLECT_STOP_ON_OLD: stopOnOld ? '1' : '0',
+      COLLECT_MODE: mode,
     },
     (line) => {
       addLog(line);
@@ -673,6 +674,8 @@ function startJob(mode, body) {
         addLog('[job] 下载账号 Cookie 已保存');
       } else if (mode === 'download') {
         await runCollect(50, true);
+      } else if (mode === 'backfill') {
+        await runCollect(Number(body.count) || 50, false, 'backfill');
       } else {
         const count =
           mode === '50' ? 50 : mode === '100' ? 100 : Number(body.count);

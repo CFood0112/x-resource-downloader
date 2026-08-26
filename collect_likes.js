@@ -16,9 +16,14 @@ const archiveFile = resolveRel(config.archiveFile || 'archive.txt');
 const logsDir = resolveRel(config.logsDir || 'logs');
 const configuredMax = Number(config.maxLikesToScan) || 500;
 const maxLikes = Number(process.env.COLLECT_MAX_LIKES) || configuredMax;
-const maxScrollAttempts = Number(config.maxScrollAttempts) || 80;
 const loginTimeoutMs = Number(config.loginTimeoutMs) || 600000;
 const stopOnOld = process.env.COLLECT_STOP_ON_OLD === '1';
+const collectMode = process.env.COLLECT_MODE || 'recent';
+const isBackfill = collectMode === 'backfill';
+const configuredMaxScroll = Number(config.maxScrollAttempts) || 300;
+const envMaxScroll = Number(process.env.COLLECT_MAX_ATTEMPTS);
+const maxScrollAttempts =
+  envMaxScroll || (isBackfill ? Math.max(configuredMaxScroll, 300) : configuredMaxScroll);
 
 function log(msg) {
   console.log(`[collect] ${msg}`);
@@ -184,6 +189,25 @@ async function collectLikedVideos(page, username) {
   if (archiveSkipUrls.size > 0) {
     log(`根据下载记录识别到 ${archiveSkipUrls.size} 条已下载视频`);
   }
+
+  let anchorId = null;
+  if (isBackfill) {
+    let min = null;
+    for (const url of archiveSkipUrls) {
+      const m = url.match(/\/status\/(\d+)/);
+      if (m) {
+        const id = BigInt(m[1]);
+        if (min === null || id < min) min = id;
+      }
+    }
+    if (min !== null) {
+      anchorId = min;
+      log(`从最早一条已下载视频（ID ${anchorId}）开始向更早扫描`);
+    } else {
+      log('未找到已下载记录作为起点，本次按最近模式扫描');
+    }
+  }
+
   const videoUrls = [];
   let skippedCount = 0;
   let emptyRounds = 0;
@@ -214,6 +238,10 @@ async function collectLikedVideos(page, username) {
       if (!allSeenIds.has(item.id)) {
         allSeenIds.add(item.id);
         newCount++;
+      }
+      if (isBackfill && anchorId !== null && BigInt(item.id) >= anchorId) {
+        processedIds.add(item.id);
+        continue;
       }
       if (item.hasVideo) {
         if (seenUrls.has(item.url)) {
@@ -258,7 +286,7 @@ async function collectLikedVideos(page, username) {
     await sleep(1300 + Math.random() * 900);
   }
 
-  if (!stopCollecting && videoUrls.length < maxLikes) {
+  if (!stopCollecting && !isBackfill && videoUrls.length < maxLikes) {
     log('重新扫描顶部，补齐可能未及时加载的视频...');
     await page.evaluate(() => window.scrollTo(0, 0));
     await sleep(2500);
