@@ -14,6 +14,7 @@ const cookiesFile = resolveRel(config.cookiesFile);
 const seenUrlsFile = resolveRel(config.seenUrlsFile || 'seen_urls.txt');
 const skipUrlsFile = resolveRel(config.skipUrlsFile || 'skipped_urls.txt');
 const archiveFile = resolveRel(config.archiveFile || 'archive.txt');
+const backfillPositionFile = resolveRel(config.backfillPositionFile || 'data/lists/backfill_position.txt');
 const logsDir = resolveRel(config.logsDir || 'logs');
 const configuredMax = Number(config.maxLikesToScan) || 500;
 const maxLikes = Number(process.env.COLLECT_MAX_LIKES) || configuredMax;
@@ -222,6 +223,31 @@ async function collectLikedVideos(page, username) {
     }
   }
 
+  let resumeId = null;
+  let resumeSkipped = 0;
+  let deepestSeenId = null;
+  if (isBackfill) {
+    try {
+      const text = fs.readFileSync(backfillPositionFile, 'utf8').trim();
+      if (text) {
+        resumeId = BigInt(text);
+        log(`检测到上次续扫位置（ID ${resumeId}），先快速回到该位置`);
+      }
+    } catch {
+      /* no resume position yet */
+    }
+  }
+
+  const saveBackfillPosition = () => {
+    if (!isBackfill || deepestSeenId === null) return;
+    try {
+      fs.mkdirSync(path.dirname(backfillPositionFile), { recursive: true });
+      fs.writeFileSync(backfillPositionFile, deepestSeenId.toString(), 'utf8');
+    } catch {
+      /* ignore */
+    }
+  };
+
   const videoUrls = [];
   let skippedCount = 0;
   let newerSkipped = 0;
@@ -254,6 +280,18 @@ async function collectLikedVideos(page, username) {
       if (!allSeenIds.has(item.id)) {
         allSeenIds.add(item.id);
         newCount++;
+        if (deepestSeenId === null || BigInt(item.id) < deepestSeenId) {
+          deepestSeenId = BigInt(item.id);
+        }
+      }
+      if (resumeId !== null && item.id && BigInt(item.id) > resumeId) {
+        resumeSkipped++;
+        processedIds.add(item.id);
+        continue;
+      }
+      if (resumeId !== null && item.id && BigInt(item.id) <= resumeId) {
+        resumeId = null;
+        log('已回到上次续扫位置，继续向更早扫描');
       }
       if (isBackfill && anchorId !== null && BigInt(item.id) >= anchorId) {
         processedIds.add(item.id);
@@ -296,7 +334,7 @@ async function collectLikedVideos(page, username) {
 
     emptyRounds = newCount === 0 ? emptyRounds + 1 : 0;
     log(
-      `第 ${attempt + 1}/${maxScrollAttempts} 轮：累计发现 ${allSeenIds.size} 条推文，其中视频 ${videoUrls.length} 条，已跳过 ${skippedCount} 条旧视频${isBackfill ? `，已跳过 ${newerSkipped} 条比锚点更新的推文` : ''}`
+      `第 ${attempt + 1}/${maxScrollAttempts} 轮：累计发现 ${allSeenIds.size} 条推文，其中视频 ${videoUrls.length} 条，已跳过 ${skippedCount} 条旧视频${isBackfill ? `，已跳过 ${newerSkipped} 条比锚点更新的推文` : ''}${resumeSkipped ? `，回滚跳过 ${resumeSkipped} 条` : ''}`
     );
 
     if (emptyRounds >= 10) {
@@ -306,6 +344,7 @@ async function collectLikedVideos(page, username) {
 
     await page.evaluate(() => window.scrollBy(0, 2400));
     await sleep(1300 + Math.random() * 900);
+    saveBackfillPosition();
   }
 
   if (!stopCollecting && !isBackfill && videoUrls.length < maxLikes) {
@@ -334,6 +373,7 @@ async function collectLikedVideos(page, username) {
   } catch (err) {
     log(`[collect] 写入已采集记录失败：${err.message}`);
   }
+  saveBackfillPosition();
 
   return [...new Set(videoUrls)];
 }

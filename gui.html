@@ -252,6 +252,70 @@ textarea {
   font-size: 12px;
 }
 
+.failure-list {
+  max-height: 180px;
+  overflow: auto;
+}
+
+.failure-item {
+  display: flex;
+  gap: 10px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.failure-item img {
+  width: 56px;
+  height: 56px;
+  object-fit: cover;
+  border-radius: 6px;
+  background: var(--panel-2);
+  flex-shrink: 0;
+}
+
+.failure-meta {
+  min-width: 0;
+  word-break: break-all;
+}
+
+.failure-badge {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+}
+
+.modal {
+  width: min(680px, 92vw);
+  max-height: 82vh;
+  overflow: auto;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 20px;
+}
+
+.modal h2 {
+  margin: 0 0 12px;
+  font-size: 16px;
+}
+
 .status-row {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
@@ -449,11 +513,15 @@ textarea {
       </div>
       <div class="progress-line" id="progressLine">-</div>
 
+      <label class="check">
+        <input id="onlyErrorsVideo" type="checkbox">
+        只看错误
+      </label>
       <h2>运行日志</h2>
       <textarea id="log" class="log" readonly></textarea>
 
       <h2>失败列表</h2>
-      <textarea id="failures" class="log failure" readonly></textarea>
+      <div id="failuresList" class="failure-list"></div>
       <button id="fillVideoFailures" class="secondary">失败链接 → 手动链接</button>
     </section>
   </main>
@@ -525,10 +593,14 @@ textarea {
           <div class="progress" id="imageProgress"></div>
         </div>
         <div class="progress-line" id="imageProgressLine">-</div>
+        <label class="check">
+          <input id="onlyErrorsImage" type="checkbox">
+          只看错误
+        </label>
         <h2>运行日志</h2>
         <textarea id="imageLog" class="log" readonly></textarea>
         <h2>失败列表</h2>
-        <textarea id="imageFailures" class="log failure" readonly></textarea>
+        <div id="imageFailuresList" class="failure-list"></div>
         <button id="fillImageFailures" class="secondary">失败链接 → 手动链接</button>
       </section>
     </main>
@@ -608,11 +680,42 @@ textarea {
           <input id="useDownloadAccount" type="checkbox">
           使用独立下载账号（小号）
         </label>
-        <button id="loginDownload" data-run="login_download" class="secondary">登录下载小号</button>
+        <button id="loginMain" data-run="login_main" class="secondary">更换主账号</button>
+        <button id="loginDownload" data-run="login_download" class="secondary">更换/登录小号</button>
         <div id="downloadAccountStatus" class="status-note">未登录</div>
         <button id="saveSettings" class="secondary">保存设置</button>
       </section>
     </main>
+  </div>
+</div>
+
+<div id="wizardOverlay" class="modal-overlay">
+  <div class="modal">
+    <h2>首次使用设置</h2>
+    <div class="field">
+      <label>1. 登录主账号</label>
+      <button data-run="login_main" class="secondary">登录主账号</button>
+    </div>
+    <div class="field">
+      <label>2. 登录小号（可选）</label>
+      <button data-run="login_download" class="secondary">登录小号</button>
+    </div>
+    <div class="field">
+      <label>3. 选择下载目录</label>
+      <div class="dir-row">
+        <input id="wizardVideoDir" type="text" value="data/videos">
+        <button id="browseWizardVideo" class="browse-btn">选择</button>
+      </div>
+      <div class="dir-row">
+        <input id="wizardImageDir" type="text" value="data/images">
+        <button id="browseWizardImage" class="browse-btn">选择</button>
+      </div>
+    </div>
+    <div class="field">
+      <label>4. 完成</label>
+      <button id="finishWizard" class="secondary">完成</button>
+      <button id="skipWizard" class="secondary">跳过</button>
+    </div>
   </div>
 </div>
 
@@ -643,6 +746,40 @@ function fmtTime(sec) {
   const s = sec % 60;
   const pad = (n) => String(n).padStart(2, '0');
   return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
+}
+
+function escapeHtml(text) {
+  return String(text || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function renderFailures(containerId, failures) {
+  const container = $(containerId);
+  container.innerHTML = failures
+    .map((f) => {
+      const img = f.thumbUrl
+        ? `<img src="${escapeHtml(f.thumbUrl)}" alt="" loading="lazy">`
+        : '';
+      const retry = f.attempts
+        ? `<span class="failure-badge">第 ${f.attempts}/${f.maxAttempts} 次</span>`
+        : '';
+      const cat = f.category ? `<span class="failure-badge">${escapeHtml(f.category)}</span>` : '';
+      return `<div class="failure-item">${img}<div class="failure-meta">${retry}${cat}<div>${escapeHtml(f.url || '(未知链接)')}</div><div>${escapeHtml(f.message)}</div></div></div>`;
+    })
+    .join('');
+}
+
+function renderLog(entries, onlyErrors) {
+  const list = (entries || []).filter((e) => !onlyErrors || e.level === 'error');
+  return list
+    .map((e) => {
+      if (typeof e === 'string') return e;
+      return `[${e.taskId || '-'}] [${e.source || '-'}] [${e.mediaId || '-'}] [${fmtTime(e.elapsed || 0)}] ${e.message}`;
+    })
+    .join('\n');
 }
 
 function applyState(payload) {
@@ -683,7 +820,7 @@ function applyState(payload) {
   $('percent').textContent = `${Math.round(vs.percent || 0)}%`;
   $('progressLine').textContent = vs.progressLine || '-';
   $('progress').style.width = `${Math.min(100, Math.max(0, vs.percent))}%`;
-  $('log').value = vs.logs.join('\n');
+  $('log').value = renderLog(vs.logEntries || vs.logs, $('onlyErrorsVideo').checked);
   $('log').scrollTop = $('log').scrollHeight;
   const lastKind = payload.lastFailuresKind || '';
   const lastFailures = payload.lastFailures || [];
@@ -697,9 +834,7 @@ function applyState(payload) {
     : lastKind === 'images'
       ? lastFailures
       : [];
-  $('failures').value = currentVideoFailures
-    .map((f) => `${f.url || '(未知链接)'}\n  ${f.message}`)
-    .join('\n');
+  renderFailures('failuresList', currentVideoFailures);
 
   $('imageStatus').textContent = statusText(is.status);
   $('imageStatus').className = `value status-${is.status}`;
@@ -711,13 +846,18 @@ function applyState(payload) {
   $('imagePercent').textContent = `${Math.round(is.percent || 0)}%`;
   $('imageProgressLine').textContent = is.progressLine || '-';
   $('imageProgress').style.width = `${Math.min(100, Math.max(0, is.percent))}%`;
-  $('imageLog').value = is.logs.join('\n');
+  $('imageLog').value = renderLog(is.logEntries || is.logs, $('onlyErrorsImage').checked);
   $('imageLog').scrollTop = $('imageLog').scrollHeight;
-  $('imageFailures').value = currentImageFailures
-    .map((f) => `${f.url || '(未知链接)'}\n  ${f.message}`)
-    .join('\n');
+  renderFailures('imageFailuresList', currentImageFailures);
   $('fillVideoFailures').disabled = !currentVideoFailures.length;
   $('fillImageFailures').disabled = !currentImageFailures.length;
+
+  if (payload.settings) {
+    const wizardDone = !!payload.settings.wizardDone;
+    $('wizardOverlay').style.display = wizardDone ? 'none' : 'flex';
+    $('wizardVideoDir').value = $('videoDownloadDir').value || 'data/videos';
+    $('wizardImageDir').value = $('imageDownloadDir').value || 'data/images';
+  }
 
   const running = !!s.running;
   document.querySelectorAll('[data-run]').forEach((b) => {
@@ -766,6 +906,7 @@ async function saveSettings() {
     proxyUrl: $('proxyUrl').value.trim(),
     forceRedownload: $('forceRedownload').checked,
     useDownloadAccount: $('useDownloadAccount').checked,
+    wizardDone: $('wizardOverlay').style.display === 'none',
   };
   await fetch('/api/settings', {
     method: 'POST',
@@ -894,6 +1035,28 @@ async function browseDir(inputId) {
 
 $('browseVideoDir').addEventListener('click', () => browseDir('videoDownloadDir'));
 $('browseImageDir').addEventListener('click', () => browseDir('imageDownloadDir'));
+
+$('browseWizardVideo').addEventListener('click', () => browseDir('wizardVideoDir'));
+$('browseWizardImage').addEventListener('click', () => browseDir('wizardImageDir'));
+
+async function finishWizard() {
+  $('videoDownloadDir').value = $('wizardVideoDir').value.trim() || 'data/videos';
+  $('imageDownloadDir').value = $('wizardImageDir').value.trim() || 'data/images';
+  $('wizardOverlay').style.display = 'none';
+  await saveSettings();
+  const res = await fetch('/api/state');
+  applyState(await res.json());
+}
+
+$('finishWizard').addEventListener('click', finishWizard);
+$('skipWizard').addEventListener('click', finishWizard);
+
+$('onlyErrorsVideo').addEventListener('change', () => {
+  if (lastState) applyState(lastState);
+});
+$('onlyErrorsImage').addEventListener('change', () => {
+  if (lastState) applyState(lastState);
+});
 
 $('exitGui').addEventListener('click', async () => {
   await fetch('/api/gui-close', { method: 'POST' });

@@ -19,6 +19,7 @@
   "logsDir": "data/logs",
   "cookiesFile": "data/cookies/cookies.txt",
   "archiveFile": "data/lists/archive.txt",
+  "backfillPositionFile": "data/lists/backfill_position.txt",
   "listsDir": "data/lists",
   "runDir": "data/run"
 }

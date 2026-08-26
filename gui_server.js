@@ -8,6 +8,7 @@ const CONFIG_PATH = path.join(ROOT, 'config.json');
 const SETTINGS_PATH = path.join(ROOT, 'settings.json');
 const COLLECT_JS = path.join(ROOT, 'collect_likes.js');
 const LOGIN_JS = path.join(ROOT, 'login_download_account.js');
+const LOGIN_MAIN_JS = path.join(ROOT, 'login_main_account.js');
 const COLLECT_IMAGES_JS = path.join(ROOT, 'collect_images.js');
 const DOWNLOAD_IMAGES_JS = path.join(ROOT, 'download_images.js');
 const DOWNLOAD_IMAGES_BROWSER_JS = path.join(ROOT, 'download_images_browser.js');
@@ -26,6 +27,14 @@ const writeJson = (p, data) => {
 };
 
 const resolveRel = (p) => (path.isAbsolute(p) ? p : path.resolve(ROOT, p));
+
+function classifyError(msg = '') {
+  const m = String(msg);
+  if (/timeout|timed out|IncompleteRead|SSL|EOF|fetch failed|connect/i.test(m)) return '网络';
+  if (/no video|not found|404|deleted|unavailable|410/i.test(m)) return '内容不可用';
+  if (/login|authoriz|authentication|401|403/i.test(m)) return '认证/权限';
+  return '其他';
+}
 
 let config = readJson(CONFIG_PATH) || {};
 function normalizeSettings(raw) {
@@ -47,6 +56,7 @@ function normalizeSettings(raw) {
     proxyUrl: (raw && raw.proxyUrl) || '',
     forceRedownload: !!(raw && raw.forceRedownload),
     useDownloadAccount: !!(raw && raw.useDownloadAccount),
+    wizardDone: !!(raw && raw.wizardDone),
   };
 }
 const rawSettings = readJson(SETTINGS_PATH) || {};
@@ -329,6 +339,9 @@ function baseState() {
     running: false,
     status: 'idle',
     kind: '',
+    taskId: '',
+    source: '',
+    currentMediaId: '',
     message: '',
     currentFile: '',
     currentIndex: 0,
@@ -340,6 +353,7 @@ function baseState() {
     elapsed: 0,
     progressLine: '',
     logs: [],
+    logEntries: [],
     failures: [],
   };
 }
@@ -366,6 +380,7 @@ function publicState() {
       downloadDir: (settings.video && settings.video.downloadDir) || config.downloadDir || 'videos',
       downloadAccountReady: fs.existsSync(downloadCookiesFile),
       downloadCookiesFile: path.basename(downloadCookiesFile),
+      mainAccountReady: fs.existsSync(cookiesFile),
     },
   };
 }
@@ -417,11 +432,23 @@ function sweepClients() {
   }
 }
 
-function addLog(line) {
+function addLog(line, meta = {}) {
   if (!job) return;
   job.state.logs.push(line);
   if (job.state.logs.length > 2000) {
     job.state.logs.splice(0, job.state.logs.length - 2000);
+  }
+  job.state.logEntries.push({
+    time: new Date().toISOString(),
+    taskId: job.state.taskId,
+    source: meta.source || job.state.source || '',
+    mediaId: meta.mediaId || job.state.currentMediaId || '',
+    elapsed: job.state.elapsed,
+    level: meta.level || 'info',
+    message: line,
+  });
+  if (job.state.logEntries.length > 2000) {
+    job.state.logEntries.splice(0, job.state.logEntries.length - 2000);
   }
 }
 
@@ -509,6 +536,8 @@ function parseDownloadLine(line) {
   m = line.match(destRe);
   if (m) {
     job.state.currentFile = path.basename(m[1].trim());
+    const idMatch = job.state.currentFile.match(/(\d{15,20})/);
+    if (idMatch) job.state.currentMediaId = idMatch[1];
     job.state.fileCount += 1;
     job.state.currentIndex = job.state.fileCount;
     pushState();
@@ -544,6 +573,9 @@ function parseDownloadLine(line) {
       url: job.state.currentUrl || '',
       message: line.replace(/^ERROR:\s*/, ''),
     });
+    if (job.state.logEntries.length) {
+      job.state.logEntries[job.state.logEntries.length - 1].level = 'error';
+    }
     pushState(true);
     return;
   }
@@ -571,7 +603,16 @@ function parseImageLine(line) {
     job.state.failures.push({
       url: m[2],
       message: `图片 ${m[1]} 下载失败：${m[3]}`,
+      attempts: 3,
+      maxAttempts: 3,
+      category: classifyError(m[3]),
+      thumbUrl: m[2].includes('pbs.twimg.com/media/')
+        ? m[2]
+        : `https://pbs.twimg.com/media/${m[1]}?format=jpg&name=small`,
     });
+    if (job.state.logEntries.length) {
+      job.state.logEntries[job.state.logEntries.length - 1].level = 'error';
+    }
     pushState(true);
     return;
   }
@@ -581,6 +622,9 @@ function parseImageLine(line) {
     job.state.failures.push({
       url: `图片 ${m[1]}`,
       message: '图片下载失败',
+      attempts: 3,
+      maxAttempts: 3,
+      category: '其他',
     });
     pushState(true);
     return;
@@ -591,6 +635,9 @@ function parseImageLine(line) {
     job.state.failures.push({
       url: `图片 ${m[1]}`,
       message: '用户已跳过',
+      attempts: 1,
+      maxAttempts: 3,
+      category: '用户跳过',
     });
     pushState(true);
     return;
@@ -697,7 +744,12 @@ async function runDownload(urls, force, ignoreSkips = false, source = 'likes') {
     if (seenFailed.has(f.url)) return false;
     seenFailed.add(f.url);
     return true;
-  });
+  }).map((f) => ({
+    ...f,
+    attempts: f.attempts || (f.message === '用户已跳过' ? 1 : maxRounds),
+    maxAttempts: maxRounds,
+    category: f.category || classifyError(f.message),
+  }));
   addLog(`[job] 下载结束，失败 ${job.state.failures.length} 条`);
 }
 
@@ -760,6 +812,8 @@ function startJob(mode, body) {
   job.state.kind = ['images', 'images_backfill', 'images_manual'].includes(mode)
     ? 'images'
     : 'video';
+  job.state.taskId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  job.state.source = body.source || (mode === 'manual' || mode === 'images_manual' ? 'manual' : 'likes');
   lastFailures = [];
   lastFailuresKind = '';
   job.state.running = true;
@@ -809,6 +863,26 @@ function startJob(mode, body) {
         writeJson(SETTINGS_PATH, settings);
         job.state.message = '下载账号 Cookie 已保存';
         addLog('[job] 下载账号 Cookie 已保存');
+      } else if (mode === 'login_main') {
+        job.state.status = 'logging_in';
+        job.state.message = '正在打开主账号登录窗口';
+        addLog('[job] 开始主账号登录流程');
+        broadcast({ type: 'state', ...publicState() });
+        const code = await runProcess(
+          nodePath,
+          [LOGIN_MAIN_JS, CONFIG_PATH],
+          { ...process.env, NODE_PATH: nodeModules },
+          (line) => {
+            addLog(line);
+            pushState();
+          }
+        );
+        if (job.cancelled) return;
+        if (code !== 0) {
+          throw new Error(`主账号登录失败，退出码 ${code}`);
+        }
+        job.state.message = '主账号 Cookie 已保存';
+        addLog('[job] 主账号 Cookie 已保存');
       } else if (mode === 'download') {
         await runCollect(50, true, 'recent', body.source || 'likes');
       } else if (mode === 'backfill') {
