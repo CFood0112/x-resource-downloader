@@ -18,6 +18,7 @@
   "runDir": ".",
   "urlsFile": "liked_urls.txt",
   "seenUrlsFile": "seen_urls.txt",
+  "skipUrlsFile": "lists/skipped_urls.txt",
   "logsDir": "logs",
   "cookiesFile": "cookies.txt",
   "archiveFile": "archive.txt",

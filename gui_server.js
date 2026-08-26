@@ -778,8 +778,9 @@ async function runDownload(urls, force, ignoreSkips = false, source = 'likes') {
 
 async function runCollect(count, stopOnOld = false, mode = 'recent', source = 'likes') {
   job.state.status = 'collecting';
-  job.state.message = `正在采集最近 ${count} 条喜欢视频`;
-  addLog(`[job] 开始采集最近 ${count} 条喜欢视频`);
+  const action = stopOnOld ? '扫描喜欢列表并下载新增视频' : `采集最近 ${count} 条喜欢视频`;
+  job.state.message = `正在${action}`;
+  addLog(`[job] 开始${action}`);
   broadcast({ type: 'state', ...publicState() });
 
   const code = await runProcess(

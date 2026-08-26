@@ -16,6 +16,7 @@
   "imageMetaFile": "data/lists/image_meta.txt",
   "urlsFile": "data/lists/liked_urls.txt",
   "seenUrlsFile": "data/lists/seen_urls.txt",
+  "skipUrlsFile": "data/lists/skipped_urls.txt",
   "logsDir": "data/logs",
   "cookiesFile": "data/cookies/cookies.txt",
   "archiveFile": "data/lists/archive.txt",
