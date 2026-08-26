@@ -11,7 +11,9 @@ const resolveRel = (p) => (path.isAbsolute(p) ? p : path.resolve(root, p));
 
 const imageUrlsFile = resolveRel(config.imageUrlsFile || 'image_urls.txt');
 const imageArchiveFile = resolveRel(config.imageArchiveFile || 'image_archive.txt');
-const imageFailedFile = path.join(root, 'image_failed.txt');
+const listsDir = resolveRel(config.listsDir || 'data/lists');
+const imageFailedFile = path.join(listsDir, 'image_failed.txt');
+const skipRequestFile = path.join(listsDir, 'image_skip_request.txt');
 const downloadCookiesFile = resolveRel(config.downloadCookiesFile || 'cookies_download.txt');
 const mainCookiesFile = resolveRel(config.cookiesFile || 'cookies.txt');
 
@@ -109,6 +111,7 @@ function parseEntry(line) {
 
 async function main() {
   fs.mkdirSync(baseImageDir, { recursive: true });
+  fs.mkdirSync(listsDir, { recursive: true });
   const archiveIds = new Set();
   try {
     const text = fs.readFileSync(imageArchiveFile, 'utf8');
@@ -129,7 +132,6 @@ async function main() {
 
   const cookieHeader = loadCookieHeader();
   const cookieFile = loadCookieFile();
-  const skipRequestFile = path.join(root, 'image_skip_request.txt');
   let done = 0;
   let failed = 0;
 

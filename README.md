@@ -1,5 +1,16 @@
 # X 资源下载器
 
+## 目录结构
+
+- 根目录：源码、启动脚本、配置文件
+- `data/videos/`：视频，喜欢和书签分别存到 `likes/`、`bookmarks/`
+- `data/images/`：图片，按来源分 `likes/`、`bookmarks/`
+- `data/logs/`：运行日志
+- `data/lists/`：下载记录、采集列表、失败记录等
+- `data/profiles/`：主账号和小号浏览器配置
+- `data/cookies/`：Cookie 文件
+- `release/`：可分发发行版
+
 这套工具会自动打开你登录态的 Chrome，滚动你的 X 喜欢列表，挑出带视频的推文，再用 `yt-dlp` 批量下载。已下载过的视频会通过 `archive.txt` 自动跳过，下次运行只下载新增的。
 
 推荐直接双击 `x_video_downloader.bat`，会以隐藏后台方式打开本地图形界面，显示当前状态、网速、剩余时间、进度条、当前第几个视频、运行日志和失败列表，不会残留 CMD 窗口。运行日志会保存在 `logs\` 目录，失败下载会额外写入 `logs\failures_*.txt` 和 `logs\errors.log`。

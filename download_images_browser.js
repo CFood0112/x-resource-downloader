@@ -11,8 +11,9 @@ const resolveRel = (p) => (path.isAbsolute(p) ? p : path.resolve(root, p));
 const profileDir = resolveRel(config.profileDir);
 const imageUrlsFile = resolveRel(config.imageUrlsFile || 'image_urls.txt');
 const imageArchiveFile = resolveRel(config.imageArchiveFile || 'image_archive.txt');
-const imageFailedFile = path.join(root, 'image_failed.txt');
-const skipRequestFile = path.join(root, 'image_skip_request.txt');
+const listsDir = resolveRel(config.listsDir || 'data/lists');
+const imageFailedFile = path.join(listsDir, 'image_failed.txt');
+const skipRequestFile = path.join(listsDir, 'image_skip_request.txt');
 
 let settings = {};
 try {
@@ -96,6 +97,7 @@ async function main() {
     .map(parseEntry);
 
   fs.mkdirSync(baseImageDir, { recursive: true });
+  fs.mkdirSync(listsDir, { recursive: true });
   let context;
   let done = 0;
   let failed = 0;

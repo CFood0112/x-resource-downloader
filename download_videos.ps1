@@ -78,7 +78,7 @@ $titlePart = ''
 if ($nameMode -eq 'structured_title') {
     $titlePart = ' - %(title).40s'
 }
-$outputTemplate = Join-Path $downloadDir ($subPath + '%(upload_date|unknown)s - %(uploader|unknown)s - %(id)s' + $titlePart + '%(playlist_index& - {0}|)s.%(ext)s')
+$outputTemplate = Join-Path $downloadDir ('likes/' + $subPath + '%(upload_date|unknown)s - %(uploader|unknown)s - %(id)s' + $titlePart + '%(playlist_index& - {0}|)s.%(ext)s')
 
 $ytArgs = @(
     '--batch-file', $activeUrlsFile,

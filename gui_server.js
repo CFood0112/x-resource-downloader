@@ -6,14 +6,12 @@ const { spawn, spawnSync } = require('child_process');
 const ROOT = __dirname;
 const CONFIG_PATH = path.join(ROOT, 'config.json');
 const SETTINGS_PATH = path.join(ROOT, 'settings.json');
-const LOG_DIR = path.join(ROOT, 'logs');
 const COLLECT_JS = path.join(ROOT, 'collect_likes.js');
 const LOGIN_JS = path.join(ROOT, 'login_download_account.js');
 const COLLECT_IMAGES_JS = path.join(ROOT, 'collect_images.js');
 const DOWNLOAD_IMAGES_JS = path.join(ROOT, 'download_images.js');
 const DOWNLOAD_IMAGES_BROWSER_JS = path.join(ROOT, 'download_images_browser.js');
 const RESOLVE_TWEET_IMAGES_JS = path.join(ROOT, 'resolve_tweet_images.js');
-const LOCK_FILE = path.join(ROOT, '.gui.lock');
 
 const readJson = (p) => {
   try {
@@ -64,13 +62,22 @@ const urlsFile = resolveRel(config.urlsFile || 'liked_urls.txt');
 const cookiesFile = resolveRel(config.cookiesFile || 'cookies.txt');
 const downloadCookiesFile = resolveRel(config.downloadCookiesFile || 'cookies_download.txt');
 const archiveFile = resolveRel(config.archiveFile || 'archive.txt');
-const manualUrlsFile = path.join(ROOT, 'manual_urls.txt');
+const listsDir = resolveRel(config.listsDir || 'data/lists');
+const runDir = resolveRel(config.runDir || 'data/run');
+const LOG_DIR = resolveRel(config.logsDir || 'logs');
+const LOCK_FILE = path.join(runDir, '.gui.lock');
+const manualUrlsFile = path.join(listsDir, 'manual_urls.txt');
 const imageUrlsFile = resolveRel(config.imageUrlsFile || 'image_urls.txt');
-const manualTweetUrlsFile = path.join(ROOT, 'manual_tweet_urls.txt');
-const retryUrlsFile = path.join(ROOT, 'retry_urls.txt');
-const activeBatchFile = path.join(ROOT, 'active_batch.txt');
-const skipUrlsFile = path.join(ROOT, 'skipped_urls.txt');
+const manualTweetUrlsFile = path.join(listsDir, 'manual_tweet_urls.txt');
+const retryUrlsFile = path.join(listsDir, 'retry_urls.txt');
+const activeBatchFile = path.join(listsDir, 'active_batch.txt');
+const skipUrlsFile = path.join(listsDir, 'skipped_urls.txt');
+const imageSkipRequestFile = path.join(listsDir, 'image_skip_request.txt');
 const downloadDir = resolveRel(config.downloadDir || 'videos');
+
+fs.mkdirSync(listsDir, { recursive: true });
+fs.mkdirSync(runDir, { recursive: true });
+fs.mkdirSync(LOG_DIR, { recursive: true });
 
 function readSkipSet() {
   const set = new Set();
@@ -195,7 +202,7 @@ function showAlreadyRunning(port) {
   const url = `http://127.0.0.1:${port || 8765}`;
   console.log(`GUI is already running at ${url}`);
   try {
-    fs.writeFileSync(path.join(ROOT, 'gui_ready.txt'), 'ready', 'utf8');
+    fs.writeFileSync(path.join(runDir, 'gui_ready.txt'), 'ready', 'utf8');
   } catch {
     /* ignore */
   }
@@ -251,7 +258,7 @@ function getFfmpegPath() {
 
 const ffmpegPath = getFfmpegPath();
 
-function buildOutputTemplate() {
+function buildOutputTemplate(source = 'likes') {
   const videoSettings = settings.video || {};
   const videoDir = resolveRel(videoSettings.downloadDir || config.downloadDir || 'videos');
   const subPaths = {
@@ -262,13 +269,15 @@ function buildOutputTemplate() {
   };
   const subPath = subPaths[videoSettings.folderMode] || '';
   const titlePart = videoSettings.nameMode === 'structured_title' ? ' - %(title).40s' : '';
+  const sourceDir = source === 'bookmarks' ? 'bookmarks' : source === 'manual' ? 'manual' : 'likes';
   return path.join(
     videoDir,
+    sourceDir,
     `${subPath}%(upload_date|unknown)s - %(uploader|unknown)s - %(id)s${titlePart}%(playlist_index& - {0}|)s.%(ext)s`
   );
 }
 
-function buildYtdlpArgs(urls, force) {
+function buildYtdlpArgs(urls, force, source = 'likes') {
   const activeCookies =
     settings.useDownloadAccount && fs.existsSync(downloadCookiesFile)
       ? downloadCookiesFile
@@ -293,7 +302,7 @@ function buildYtdlpArgs(urls, force) {
     '--yes-playlist',
     '-f', 'best/bv*+ba/b',
     '--merge-output-format', 'mp4',
-    '-o', buildOutputTemplate(),
+    '-o', buildOutputTemplate(source),
   ];
 
   if (force) {
@@ -596,7 +605,7 @@ function parseImageLine(line) {
   pushState();
 }
 
-async function runDownload(urls, force, ignoreSkips = false) {
+async function runDownload(urls, force, ignoreSkips = false, source = 'likes') {
   job.state.status = 'downloading';
   job.state.message = '正在下载';
   job.state.currentFile = '';
@@ -628,7 +637,7 @@ async function runDownload(urls, force, ignoreSkips = false) {
     addLog(`[job] 开始下载 ${job.state.totalLinks} 条链接`);
     broadcast({ type: 'state', ...publicState() });
 
-    const args = buildYtdlpArgs(activeBatch, force);
+    const args = buildYtdlpArgs(activeBatch, force, source);
     const code = await runProcess(
       pythonPath,
       ['-m', 'yt_dlp', ...args],
@@ -735,7 +744,7 @@ async function runCollect(count, stopOnOld = false, mode = 'recent', source = 'l
     return;
   }
 
-  await runDownload(urlsFile, false);
+  await runDownload(urlsFile, false, false, source);
 }
 
 function startJob(mode, body) {
@@ -775,7 +784,7 @@ function startJob(mode, body) {
         if (!links.length) throw new Error('没有有效的链接');
         fs.writeFileSync(manualUrlsFile, `${links.join('\n')}\n`, 'utf8');
         addLog(`[job] 收到 ${links.length} 条手动链接`);
-        await runDownload(manualUrlsFile, !!settings.forceRedownload, true);
+        await runDownload(manualUrlsFile, !!settings.forceRedownload, true, 'manual');
       } else if (mode === 'refresh') {
         await runCollect(20, true, 'recent', body.source || 'likes');
       } else if (mode === 'login_download') {
@@ -1101,7 +1110,7 @@ const requestHandler = async (req, res) => {
   if (req.method === 'POST' && url === '/api/skip') {
     if (job && job.state.status === 'downloading_images') {
       fs.writeFileSync(
-        path.join(ROOT, 'image_skip_request.txt'),
+        imageSkipRequestFile,
         job.state.currentFile || '*',
         'utf8'
       );
@@ -1147,7 +1156,7 @@ function startServer(port) {
     updateLock(actualPort);
     console.log(`X video downloader GUI: http://127.0.0.1:${actualPort}`);
     try {
-      fs.writeFileSync(path.join(ROOT, 'gui_ready.txt'), 'ready', 'utf8');
+      fs.writeFileSync(path.join(runDir, 'gui_ready.txt'), 'ready', 'utf8');
     } catch {
       /* ignore */
     }
