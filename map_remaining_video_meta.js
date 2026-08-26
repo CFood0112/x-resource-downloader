@@ -61,11 +61,15 @@ try {
   /* no seen urls */
 }
 
-const batchLimit = Number(process.env.BATCH_LIMIT) || 200;
 const minDelay = Number(process.env.MIN_DELAY) || 3000;
 const maxDelay = Number(process.env.MAX_DELAY) || 9000;
+const maxUrls = process.env.MAX_URLS ? Number(process.env.MAX_URLS) : Infinity;
+const maxRetries = Number(process.env.MAX_RETRIES) || 3;
 const mappedArchive = new Set([...urlByMedia.keys()].filter((id) => archiveIds.has(id)));
+const pendingUrls = [...seenUrls];
+const attempts = new Map();
 let checked = 0;
+let dropped = 0;
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -82,10 +86,13 @@ function appendMappings(newMappings) {
 }
 
 async function main() {
-  for (const url of seenUrls) {
-    if (mappedArchive.size >= archiveIds.size) break;
-    if (checked >= batchLimit) break;
+  if (mappedArchive.size >= archiveIds.size) {
+    console.log(`[map] 已全部匹配（${mappedArchive.size}/${archiveIds.size}），无需运行`);
+    return;
+  }
 
+  while (pendingUrls.length && mappedArchive.size < archiveIds.size && checked < maxUrls) {
+    const url = pendingUrls.shift();
     const args = [
       '-m', 'yt_dlp',
       '--simulate', '--no-warnings', '--yes-playlist',
@@ -103,26 +110,40 @@ async function main() {
     });
     checked++;
 
-    const ids = (res.stdout || '')
-      .split(/\r?\n/)
-      .map((s) => s.trim())
-      .filter(Boolean);
-    const newMappings = [];
-    for (const id of ids) {
-      if (archiveIds.has(id) && !urlByMedia.has(id)) {
-        urlByMedia.set(id, url);
-        newMappings.push([url, id]);
-        mappedArchive.add(id);
-        mappedUrls.add(url);
+    if (res.status !== 0) {
+      const n = (attempts.get(url) || 0) + 1;
+      attempts.set(url, n);
+      if (n < maxRetries) {
+        pendingUrls.push(url);
+      } else {
+        dropped++;
+        console.log(`[map] 放弃 ${url}（连续失败 ${n} 次）`);
       }
+      console.log(
+        `[map] 失败 ${checked} archive=${mappedArchive.size}/${archiveIds.size} retry=${n}/${maxRetries}`
+      );
+    } else {
+      attempts.delete(url);
+      const ids = (res.stdout || '')
+        .split(/\r?\n/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+      const newMappings = [];
+      for (const id of ids) {
+        if (archiveIds.has(id) && !urlByMedia.has(id)) {
+          urlByMedia.set(id, url);
+          newMappings.push([url, id]);
+          mappedArchive.add(id);
+          mappedUrls.add(url);
+        }
+      }
+      appendMappings(newMappings);
+      console.log(
+        `[map] ${checked} archive=${mappedArchive.size}/${archiveIds.size} found=${newMappings.length} 剩余候选=${pendingUrls.length}`
+      );
     }
-    appendMappings(newMappings);
 
-    console.log(
-      `[map] ${checked}/${batchLimit} archive=${mappedArchive.size}/${archiveIds.size} found=${newMappings.length}`
-    );
-
-    if (mappedArchive.size < archiveIds.size && checked < batchLimit) {
+    if (pendingUrls.length && mappedArchive.size < archiveIds.size && checked < maxUrls) {
       const delay = Math.floor(minDelay + Math.random() * (maxDelay - minDelay));
       console.log(`[map] sleep ${(delay / 1000).toFixed(1)}s`);
       await sleep(delay);
@@ -130,7 +151,7 @@ async function main() {
   }
 
   console.log(
-    `[map] 完成：检查 ${checked} 条，archive 已映射 ${mappedArchive.size}/${archiveIds.size}`
+    `[map] 结束：检查 ${checked}，匹配 ${mappedArchive.size}/${archiveIds.size}，剩余候选 ${pendingUrls.length}，放弃 ${dropped}`
   );
 }
 
