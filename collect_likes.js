@@ -12,6 +12,7 @@ const profileDir = resolveRel(config.profileDir);
 const urlsFile = resolveRel(config.urlsFile);
 const cookiesFile = resolveRel(config.cookiesFile);
 const seenUrlsFile = resolveRel(config.seenUrlsFile || 'seen_urls.txt');
+const skipUrlsFile = resolveRel(config.skipUrlsFile || 'skipped_urls.txt');
 const archiveFile = resolveRel(config.archiveFile || 'archive.txt');
 const logsDir = resolveRel(config.logsDir || 'logs');
 const configuredMax = Number(config.maxLikesToScan) || 500;
@@ -183,12 +184,21 @@ async function collectLikedVideos(page, username) {
     }
   }
   const archiveSkipUrls = loadArchiveSkipUrls();
-  for (const url of archiveSkipUrls) {
-    seenUrls.add(url);
+  const skipUrls = new Set(archiveSkipUrls);
+  try {
+    const text = fs.readFileSync(skipUrlsFile, 'utf8');
+    text
+      .split(/\r?\n/)
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .forEach((url) => skipUrls.add(url));
+  } catch {
+    /* no explicit skips yet */
   }
   if (archiveSkipUrls.size > 0) {
     log(`根据下载记录识别到 ${archiveSkipUrls.size} 条已下载视频`);
   }
+  const collectedUrls = new Set();
 
   let anchorId = null;
   if (isBackfill) {
@@ -244,14 +254,15 @@ async function collectLikedVideos(page, username) {
         continue;
       }
       if (item.hasVideo) {
-        if (seenUrls.has(item.url)) {
+        if (skipUrls.has(item.url)) {
           skippedCount++;
           if (stopOnOld) {
             stopCollecting = true;
             break;
           }
-        } else {
+        } else if (!collectedUrls.has(item.url)) {
           videoUrls.push(item.url);
+          collectedUrls.add(item.url);
           seenUrls.add(item.url);
         }
         processedIds.add(item.id);
@@ -294,8 +305,9 @@ async function collectLikedVideos(page, username) {
       const topSnapshot = await readSnapshot(page);
       for (const item of topSnapshot) {
         if (processedIds.has(item.id) || !item.hasVideo) continue;
-        if (seenUrls.has(item.url)) continue;
+        if (collectedUrls.has(item.url)) continue;
         videoUrls.push(item.url);
+        collectedUrls.add(item.url);
         seenUrls.add(item.url);
         processedIds.add(item.id);
       }
