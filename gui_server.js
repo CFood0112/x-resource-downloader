@@ -193,10 +193,17 @@ function removeLock() {
 function showAlreadyRunning(port) {
   const url = `http://127.0.0.1:${port || 8765}`;
   console.log(`GUI is already running at ${url}`);
-  spawn('cmd', ['/c', 'start', '', url], {
-    detached: true,
-    stdio: 'ignore',
-  }).unref();
+  try {
+    fs.writeFileSync(path.join(ROOT, 'gui_ready.txt'), 'ready', 'utf8');
+  } catch {
+    /* ignore */
+  }
+  if (process.env.GUI_NO_OPEN !== '1') {
+    spawn('cmd', ['/c', 'start', '', url], {
+      detached: true,
+      stdio: 'ignore',
+    }).unref();
+  }
   if (process.env.NO_POPUP !== '1') {
     const script = `Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.MessageBox]::Show('X 资源下载器已经在运行。当前地址：${url}', 'X 资源下载器', 'OK', 'Information')`;
     spawn('powershell.exe', ['-NoProfile', '-Command', script], {
@@ -1120,7 +1127,12 @@ function startServer(port) {
     const actualPort = server.address().port;
     updateLock(actualPort);
     console.log(`X video downloader GUI: http://127.0.0.1:${actualPort}`);
-    if (!process.argv.includes('--no-open')) {
+    try {
+      fs.writeFileSync(path.join(ROOT, 'gui_ready.txt'), 'ready', 'utf8');
+    } catch {
+      /* ignore */
+    }
+    if (!process.argv.includes('--no-open') && process.env.GUI_NO_OPEN !== '1') {
       spawn('cmd', ['/c', 'start', '', `http://127.0.0.1:${actualPort}`], {
         detached: true,
         stdio: 'ignore',
