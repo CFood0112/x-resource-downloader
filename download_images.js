@@ -27,6 +27,7 @@ const baseImageDir = resolveRel(
 );
 const imageFolderMode = imageSettings.folderMode || 'flat';
 const imageNameMode = imageSettings.nameMode || 'media_id';
+const pythonPath = resolveRel(config.pythonPath || 'python.exe');
 
 function log(msg) {
   console.log(`[image] ${msg}`);
@@ -56,6 +57,21 @@ function loadCookieHeader() {
   } catch {
     return '';
   }
+}
+
+function loadCookieFile() {
+  if (process.env.IMAGE_NO_COOKIES === '1') return '';
+  let currentSettings = {};
+  try {
+    currentSettings = JSON.parse(fs.readFileSync(path.join(root, 'settings.json'), 'utf8'));
+  } catch {
+    /* defaults */
+  }
+  const file =
+    currentSettings.useDownloadAccount && fs.existsSync(downloadCookiesFile)
+      ? downloadCookiesFile
+      : mainCookiesFile;
+  return fs.existsSync(file) ? file : '';
 }
 
 function sleep(ms) {
@@ -111,6 +127,7 @@ async function main() {
     .map(parseEntry);
 
   const cookieHeader = loadCookieHeader();
+  const cookieFile = loadCookieFile();
   const skipRequestFile = path.join(root, 'image_skip_request.txt');
   let done = 0;
   let failed = 0;
@@ -153,22 +170,35 @@ async function main() {
         : item.mediaId;
     const outFile = path.join(dir, `${fileName}.${item.ext}`);
     try {
-      const args = [
-        '-sS', '-L', '-f',
-        '--connect-timeout', '20',
-        '--max-time', '120',
-        '-A',
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36',
-        '-o', outFile,
-      ];
-      if (cookieHeader) {
-        args.push('-H', `Cookie: ${cookieHeader}`);
+      const pyRes = spawnSync(
+        pythonPath,
+        [path.join(root, 'download_image.py'), item.url, outFile, cookieFile],
+        { encoding: 'buffer', stdio: ['ignore', 'ignore', 'pipe'], timeout: 90000 }
+      );
+      let lastError = pyRes.stderr ? pyRes.stderr.toString().trim() : 'python error';
+      if (pyRes.status !== 0 || !fs.existsSync(outFile)) {
+        const args = [
+          '-sS', '-L', '-f',
+          '--connect-timeout', '20',
+          '--max-time', '120',
+          '-A',
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36',
+          '-o', outFile,
+        ];
+        if (cookieHeader) {
+          args.push('-H', `Cookie: ${cookieHeader}`);
+        }
+        args.push(item.url);
+        const curlRes = spawnSync('curl.exe', args, {
+          encoding: 'buffer',
+          stdio: ['ignore', 'ignore', 'pipe'],
+          timeout: 90000,
+        });
+        lastError = curlRes.stderr ? curlRes.stderr.toString().trim() : 'curl error';
       }
-      args.push(item.url);
-      const res = spawnSync('curl.exe', args, { encoding: 'buffer', stdio: ['ignore', 'ignore', 'pipe'] });
-      if (res.status !== 0 || !fs.existsSync(outFile)) {
+      if (!fs.existsSync(outFile) || !fs.statSync(outFile).size) {
         failed++;
-        log(`FAIL ${item.mediaId} ${res.stderr ? res.stderr.toString().trim() : 'curl error'}`);
+        log(`FAIL ${item.mediaId} ${lastError}`);
         continue;
       }
       const size = fs.statSync(outFile).size;
