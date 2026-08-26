@@ -487,6 +487,11 @@ textarea {
           <label for="imageCount">数量</label>
           <input id="imageCount" type="number" min="1" value="50">
         </div>
+        <div class="field">
+          <label for="imageManualLinks">手动链接（每行一个）</label>
+          <textarea id="imageManualLinks" rows="5" placeholder="https://pbs.twimg.com/media/..."></textarea>
+        </div>
+        <button data-run="images_manual">下载指定链接图片</button>
       </aside>
       <section class="panel main-panel">
         <div class="status-row">
@@ -658,6 +663,12 @@ document.querySelectorAll('[data-run]').forEach((btn) => {
         btn.dataset.count === 'custom'
           ? Number($('imageCount').value)
           : Number(btn.dataset.count || 50);
+    }
+    if (mode === 'images_manual') {
+      body.links = $('imageManualLinks').value
+        .split(/\r?\n/)
+        .map((s) => s.trim())
+        .filter(Boolean);
     }
     const res = await fetch('/api/run', {
       method: 'POST',

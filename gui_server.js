@@ -38,6 +38,7 @@ const cookiesFile = resolveRel(config.cookiesFile || 'cookies.txt');
 const downloadCookiesFile = resolveRel(config.downloadCookiesFile || 'cookies_download.txt');
 const archiveFile = resolveRel(config.archiveFile || 'archive.txt');
 const manualUrlsFile = path.join(ROOT, 'manual_urls.txt');
+const imageUrlsFile = resolveRel(config.imageUrlsFile || 'image_urls.txt');
 const retryUrlsFile = path.join(ROOT, 'retry_urls.txt');
 const activeBatchFile = path.join(ROOT, 'active_batch.txt');
 const skipUrlsFile = path.join(ROOT, 'skipped_urls.txt');
@@ -757,6 +758,24 @@ function startJob(mode, body) {
 
         job.state.status = 'downloading_images';
         job.state.message = '正在下载图片';
+        broadcast({ type: 'state', ...publicState() });
+        const c2 = await runProcess(
+          nodePath,
+          [DOWNLOAD_IMAGES_JS, CONFIG_PATH],
+          process.env,
+          parseImageLine
+        );
+        if (job.cancelled) return;
+        if (c2 !== 0) throw new Error(`图片下载失败，退出码 ${c2}`);
+      } else if (mode === 'images_manual') {
+        const links = (body.links || [])
+          .map((s) => String(s).trim())
+          .filter((s) => /^https?:\/\//i.test(s));
+        if (!links.length) throw new Error('没有有效的图片链接');
+        fs.writeFileSync(imageUrlsFile, `${links.join('\n')}\n`, 'utf8');
+        job.state.status = 'downloading_images';
+        job.state.message = '正在下载图片';
+        addLog(`[job] 收到 ${links.length} 条图片链接`);
         broadcast({ type: 'state', ...publicState() });
         const c2 = await runProcess(
           nodePath,

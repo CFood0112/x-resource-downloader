@@ -174,7 +174,11 @@ async function main() {
         `第 ${attempt + 1}/${maxScrollAttempts} 轮：累计发现 ${seenMedia.size} 张图片，待下载 ${collected.size} 张`
       );
 
-      if (emptyRounds >= 10) {
+      if (emptyRounds === 10) {
+        log('连续多轮未发现新图片，继续滚动查找...');
+      }
+
+      if (emptyRounds >= 30) {
         log('连续多轮没有新内容，已到达列表底部');
         break;
       }
