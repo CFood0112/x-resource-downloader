@@ -238,6 +238,7 @@ async function collectLikedVideos(page, username) {
   let resumeId = null;
   let resumeSkipped = 0;
   let deepestSeenId = null;
+  let lazyWarned = false;
   if (isBackfill) {
     try {
       const text = fs.readFileSync(backfillPositionFile, 'utf8').trim();
@@ -318,8 +319,14 @@ async function collectLikedVideos(page, username) {
         if (skipUrls.has(item.url)) {
           skippedCount++;
           if (stopOnOld) {
-            stopCollecting = true;
-            break;
+            if (videoUrls.length > 0) {
+              stopCollecting = true;
+              break;
+            }
+            if (!lazyWarned) {
+              lazyWarned = true;
+              log('顶部可能还有未加载的新视频，继续扫描');
+            }
           }
         } else if (!collectedUrls.has(item.url)) {
           videoUrls.push(item.url);
@@ -432,6 +439,7 @@ async function main() {
 
     if (videoUrls.length === 0) {
       log('没有找到新的视频推文');
+      fs.writeFileSync(urlsFile, '', 'utf8');
     } else {
       fs.writeFileSync(urlsFile, `${videoUrls.join('\n')}\n`, 'utf8');
       log(`已保存 ${videoUrls.length} 个视频链接到 ${path.basename(urlsFile)}`);
