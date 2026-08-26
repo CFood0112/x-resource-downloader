@@ -62,8 +62,14 @@ try {
 }
 
 const batchLimit = Number(process.env.BATCH_LIMIT) || 200;
+const minDelay = Number(process.env.MIN_DELAY) || 3000;
+const maxDelay = Number(process.env.MAX_DELAY) || 9000;
 const mappedArchive = new Set([...urlByMedia.keys()].filter((id) => archiveIds.has(id)));
 let checked = 0;
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 function appendMappings(newMappings) {
   if (!newMappings.length) return;
@@ -75,48 +81,60 @@ function appendMappings(newMappings) {
   );
 }
 
-for (const url of seenUrls) {
-  if (mappedArchive.size >= archiveIds.size) break;
-  if (checked >= batchLimit) break;
+async function main() {
+  for (const url of seenUrls) {
+    if (mappedArchive.size >= archiveIds.size) break;
+    if (checked >= batchLimit) break;
 
-  const args = [
-    '-m', 'yt_dlp',
-    '--simulate', '--no-warnings', '--yes-playlist',
-    '--print', '%(id)s',
-    '--sleep-requests', '2',
-    '--extractor-retries', '5',
-    '--legacy-server-connect',
-    '--socket-timeout', '30',
-    '--cookies', cookieFile,
-    url,
-  ];
-  const res = spawnSync(pythonPath, args, {
-    encoding: 'utf8',
-    timeout: 120000,
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
-  checked++;
+    const args = [
+      '-m', 'yt_dlp',
+      '--simulate', '--no-warnings', '--yes-playlist',
+      '--print', '%(id)s',
+      '--extractor-retries', '5',
+      '--legacy-server-connect',
+      '--socket-timeout', '30',
+      '--cookies', cookieFile,
+      url,
+    ];
+    const res = spawnSync(pythonPath, args, {
+      encoding: 'utf8',
+      timeout: 120000,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    checked++;
 
-  const ids = (res.stdout || '')
-    .split(/\r?\n/)
-    .map((s) => s.trim())
-    .filter(Boolean);
-  const newMappings = [];
-  for (const id of ids) {
-    if (archiveIds.has(id) && !urlByMedia.has(id)) {
-      urlByMedia.set(id, url);
-      newMappings.push([url, id]);
-      mappedArchive.add(id);
-      mappedUrls.add(url);
+    const ids = (res.stdout || '')
+      .split(/\r?\n/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const newMappings = [];
+    for (const id of ids) {
+      if (archiveIds.has(id) && !urlByMedia.has(id)) {
+        urlByMedia.set(id, url);
+        newMappings.push([url, id]);
+        mappedArchive.add(id);
+        mappedUrls.add(url);
+      }
+    }
+    appendMappings(newMappings);
+
+    console.log(
+      `[map] ${checked}/${batchLimit} archive=${mappedArchive.size}/${archiveIds.size} found=${newMappings.length}`
+    );
+
+    if (mappedArchive.size < archiveIds.size && checked < batchLimit) {
+      const delay = Math.floor(minDelay + Math.random() * (maxDelay - minDelay));
+      console.log(`[map] sleep ${(delay / 1000).toFixed(1)}s`);
+      await sleep(delay);
     }
   }
-  appendMappings(newMappings);
 
   console.log(
-    `[map] ${checked}/${batchLimit} archive=${mappedArchive.size}/${archiveIds.size} found=${newMappings.length}`
+    `[map] 完成：检查 ${checked} 条，archive 已映射 ${mappedArchive.size}/${archiveIds.size}`
   );
 }
 
-console.log(
-  `[map] 完成：检查 ${checked} 条，archive 已映射 ${mappedArchive.size}/${archiveIds.size}`
-);
+main().catch((err) => {
+  console.error(`[map] 失败：${err.message}`);
+  process.exit(1);
+});
