@@ -26,8 +26,8 @@ const {
 const { cancelAutoShutdown, scheduleAutoShutdown } = require('./shutdown');
 
 const htmlCache = fs.readFileSync(path.join(ROOT, 'ui', 'gui.html'), 'utf8');
-const EXPORT_JS = path.join(ROOT, 'export_index.js');
-const DEDUP_JS = path.join(ROOT, 'dedup_local.js');
+const EXPORT_JS = path.join(ROOT, 'scripts', 'export_index.js');
+const DEDUP_JS = path.join(ROOT, 'scripts', 'dedup_local.js');
 const preferredPort = Number(process.env.GUI_PORT) || 8765;
 
 function readBody(req) {

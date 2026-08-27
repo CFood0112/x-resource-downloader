@@ -32,13 +32,7 @@ if (Test-Path $runtimeDir) {
 New-Item -ItemType Directory -Force -Path $program | Out-Null
 
 $files = @(
-    'collect_images.js','collect_likes.js','collect_likes.ps1','download_image.py',
-    'download_images.js','download_images_browser.js','download_videos.ps1',
-    'gui_server.js','install_scheduler.ps1','login_download.ps1',
-    'login_download_account.js','login_main_account.js','manual_download.ps1',
-    'menu.ps1','resolve_tweet_images.js','run_all.ps1','start_gui.ps1','start_gui.vbs',
-    'rebuild_video_meta.js','map_remaining_video_meta.js','run_map.ps1',
-    'export_index.js','dedup_local.js'
+    'gui_server.js','menu.ps1','start_gui.ps1','start_gui.vbs'
 )
 
 foreach ($f in $files) {
@@ -49,7 +43,7 @@ foreach ($f in $files) {
     Copy-Item -LiteralPath $src -Destination (Join-Path $program $f) -Force
 }
 
-foreach ($dir in @('server', 'ui', 'collectors', 'downloaders')) {
+foreach ($dir in @('server', 'ui', 'collectors', 'downloaders', 'scripts')) {
     $srcDir = Join-Path $root $dir
     if (-not (Test-Path $srcDir)) {
         throw "Missing source directory: $dir"

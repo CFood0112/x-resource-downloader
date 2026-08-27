@@ -24,12 +24,12 @@ const {
 const { classifyError } = require('./errors');
 const { scheduleAutoShutdown } = require('./shutdown');
 
-const COLLECT_JS = path.join(ROOT, 'collect_likes.js');
-const LOGIN_JS = path.join(ROOT, 'login_download_account.js');
-const LOGIN_MAIN_JS = path.join(ROOT, 'login_main_account.js');
-const COLLECT_IMAGES_JS = path.join(ROOT, 'collect_images.js');
-const DOWNLOAD_IMAGES_BROWSER_JS = path.join(ROOT, 'download_images_browser.js');
-const RESOLVE_TWEET_IMAGES_JS = path.join(ROOT, 'resolve_tweet_images.js');
+const COLLECT_JS = path.join(ROOT, 'collectors', 'collect_likes.js');
+const LOGIN_JS = path.join(ROOT, 'scripts', 'login_download_account.js');
+const LOGIN_MAIN_JS = path.join(ROOT, 'scripts', 'login_main_account.js');
+const COLLECT_IMAGES_JS = path.join(ROOT, 'collectors', 'collect_images.js');
+const DOWNLOAD_IMAGES_BROWSER_JS = path.join(ROOT, 'downloaders', 'download_images_browser.js');
+const RESOLVE_TWEET_IMAGES_JS = path.join(ROOT, 'downloaders', 'resolve_tweet_images.js');
 
 const videoMetaSeen = new Set();
 const ffmpegPath = getFfmpegPath();

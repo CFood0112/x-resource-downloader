@@ -42,7 +42,7 @@
 1. 安装依赖：
 
 ```powershell
-.\setup.ps1
+.\scripts\setup.ps1
 ```
 
 2. 启动 GUI：
@@ -54,7 +54,7 @@
 3. 或使用命令行入口：
 
 ```powershell
-.\run_all.ps1
+.\scripts\run_all.ps1
 ```
 
 ## GUI 使用指南
@@ -134,7 +134,7 @@ GUI 设置里：
 命令行登录小号：
 
 ```powershell
-.\login_download.ps1
+.\scripts\login_download.ps1
 ```
 
 ### 手动下载链接
@@ -144,7 +144,7 @@ GUI 设置里：
 命令行方式：
 
 ```powershell
-.\manual_download.ps1
+.\scripts\manual_download.ps1
 ```
 
 ### 单独脚本
@@ -152,31 +152,31 @@ GUI 设置里：
 只采集：
 
 ```powershell
-.\collect_likes.ps1
+.\scripts\collect_likes.ps1
 ```
 
 只下载已有列表：
 
 ```powershell
-.\download_videos.ps1
+.\scripts\download_videos.ps1
 ```
 
 重建视频 URL-媒体映射（从日志）：
 
 ```powershell
-node rebuild_video_meta.js config.json
+node scripts/rebuild_video_meta.js config.json
 ```
 
 持续补全映射（夜间运行，随机间隔）：
 
 ```powershell
-.\run_map.ps1
+.\scripts\run_map.ps1
 ```
 
 等价于直接运行：
 
 ```powershell
-node map_remaining_video_meta.js config.json
+node scripts/map_remaining_video_meta.js config.json
 ```
 
 环境变量：
@@ -188,14 +188,14 @@ node map_remaining_video_meta.js config.json
 生成索引：
 
 ```powershell
-node export_index.js config.json
+node scripts/export_index.js config.json
 ```
 
 本地去重：
 
 ```powershell
 $env:DEDUP_STRATEGY='move'
-node dedup_local.js config.json
+node scripts/dedup_local.js config.json
 ```
 
 策略：`move`（移动到 `data/duplicates`）或 `hardlink`（硬链接）。
@@ -224,13 +224,13 @@ node dedup_local.js config.json
 Windows 计划任务（每周日 03:00）：
 
 ```powershell
-.\install_scheduler.ps1
+.\scripts\install_scheduler.ps1
 ```
 
 改为每天：
 
 ```powershell
-.\install_scheduler.ps1 -Frequency daily
+.\scripts\install_scheduler.ps1 -Frequency daily
 ```
 
 删除：
@@ -249,6 +249,7 @@ GUI 内定时任务：在“设置 → 定时任务”添加模式、数量、�
 ├─ server/                 GUI 服务模块（配置、任务、HTTP、队列、失败记录）
 ├─ collectors/             采集相关模块
 ├─ downloaders/            下载相关模块
+├─ scripts/                维护与命令行工具（setup、计划任务、索引、映射修复等）
 ├─ ui/                     GUI 前端
 ├─ test/                   单元测试
 ├─ .github/workflows/      CI 配置
@@ -353,20 +354,20 @@ GUI 内定时任务：在“设置 → 定时任务”添加模式、数量、�
 - 视频采集识别已下载依赖 `video_meta.txt` 映射，可运行：
 
 ```powershell
-node rebuild_video_meta.js config.json
+node scripts/rebuild_video_meta.js config.json
 ```
 
 或持续补全：
 
 ```powershell
-.\run_map.ps1
+.\scripts\run_map.ps1
 ```
 
 - 确认 `skipped_urls.txt` 路径在 `config.json` 中正确指向 `data/lists/`。
 
 ### 计划任务异常
 
-- 确认计划任务使用完整路径运行 `run_all.ps1`。
+- 确认计划任务使用完整路径运行 `scripts/run_all.ps1`。
 - 检查 PowerShell 执行策略：
 
 ```powershell

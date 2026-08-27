@@ -13,7 +13,7 @@ function Invoke-DownloadStep {
         $dlArgs += @('-UrlsFile', $UrlsFile)
     }
 
-    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'download_videos.ps1') @dlArgs
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'scripts\download_videos.ps1') @dlArgs
     if ($LASTEXITCODE -ne 0) {
         exit $LASTEXITCODE
     }
@@ -24,7 +24,7 @@ function Invoke-CollectStep {
 
     $env:COLLECT_MAX_LIKES = "$Count"
     try {
-        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'collect_likes.ps1') -ConfigPath $ConfigPath
+        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'scripts\collect_likes.ps1') -ConfigPath $ConfigPath
         if ($LASTEXITCODE -ne 0) {
             exit $LASTEXITCODE
         }
@@ -78,7 +78,7 @@ while ($true) {
         }
         '5' {
             Write-Host "== 手动链接下载 ==" -ForegroundColor Cyan
-            & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'manual_download.ps1') -ConfigPath $ConfigPath
+            & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'scripts\manual_download.ps1') -ConfigPath $ConfigPath
             if ($LASTEXITCODE -ne 0) {
                 exit $LASTEXITCODE
             }

@@ -61,7 +61,7 @@ function loadArchiveSkipUrls({ archiveFile, videoMetaFile, logsDir, scanLogs = f
     }
   } else if (urlByMedia.size < archiveIds.size) {
     log(
-      `video_meta 映射 ${urlByMedia.size}/${archiveIds.size}，如需补全请运行 rebuild_video_meta.js 或 map_remaining_video_meta.js`
+      `video_meta 映射 ${urlByMedia.size}/${archiveIds.size}，如需补全请运行 scripts/rebuild_video_meta.js 或 scripts/map_remaining_video_meta.js`
     );
   }
 
