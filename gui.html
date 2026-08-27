@@ -954,6 +954,9 @@ async function saveSettings() {
 
 document.querySelectorAll('[data-run]').forEach((btn) => {
   btn.addEventListener('click', async () => {
+    if (lastState && lastState.state && lastState.state.running) {
+      if (!window.confirm('已有任务在运行，是否将新任务加入队列？')) return;
+    }
     const mode = btn.dataset.run;
     const body = { mode };
     if (mode === 'custom') {
