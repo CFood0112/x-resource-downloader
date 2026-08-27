@@ -1,6 +1,8 @@
 const fs = require('fs');
 const path = require('path');
 const { chromium } = require('playwright');
+const { parseEntry } = require('./server/imageParser');
+const { downloadWithBrowser } = require('./downloaders/browserDownload');
 
 const configPath = path.resolve(process.argv[2] || 'config.json');
 const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
@@ -35,46 +37,6 @@ function log(msg) {
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function parseEntry(line) {
-  const parts = line.split('\t');
-  if (parts.length >= 3) {
-    return {
-      mediaId: parts[0],
-      url: parts[1],
-      ext: parts[2] || 'jpg',
-      tweetId: parts[3] || '',
-      uploader: parts[4] || '',
-      date: parts[5] || '',
-    };
-  }
-  const url = parts[0];
-  const mediaMatch = url.match(/\/media\/([A-Za-z0-9_-]+)/);
-  const extMatch = url.match(/format=([a-z0-9]+)/);
-  const mediaId = mediaMatch
-    ? mediaMatch[1]
-    : `img_${require('crypto').createHash('md5').update(url).digest('hex').slice(0, 12)}`;
-  return { mediaId, url, ext: (extMatch ? extMatch[1] : 'jpg'), tweetId: '', uploader: '', date: '' };
-}
-
-async function downloadWithBrowser(context, item, outFile) {
-  const page = await context.newPage();
-  try {
-    await page.goto(item.url, { waitUntil: 'load', timeout: 60000 });
-    const bytes = await page.evaluate(async () => {
-      const res = await fetch(window.location.href, { credentials: 'include' });
-      if (!res.ok) throw new Error(`http ${res.status}`);
-      const buf = await res.arrayBuffer();
-      return Array.from(new Uint8Array(buf));
-    });
-    fs.writeFileSync(outFile, Buffer.from(bytes));
-    return { ok: true };
-  } catch (err) {
-    return { ok: false, error: err.message };
-  } finally {
-    page.close().catch(() => {});
-  }
 }
 
 async function main() {

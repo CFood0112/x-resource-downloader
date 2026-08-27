@@ -9,6 +9,8 @@
 - backfill 续扫支持快速回滚到上次位置。
 - 新增安全策略 `SECURITY.md`。
 - 新增第三方组件声明 `THIRD_PARTY_NOTICES.md` 与对应许可证文件。
+- GUI 服务拆分为 `server/` 模块，前端移至 `ui/`。
+- 新增单元测试与 GitHub Actions CI。
 
 ## [0.1.0] - 2026-08-28
 

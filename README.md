@@ -246,6 +246,12 @@ GUI 内定时任务：在“设置 → 定时任务”添加模式、数量、�
 ```text
 根目录
 ├─ 源码与启动脚本
+├─ server/                 GUI 服务模块（配置、任务、HTTP、队列、失败记录）
+├─ collectors/             采集相关模块
+├─ downloaders/            下载相关模块
+├─ ui/                     GUI 前端
+├─ test/                   单元测试
+├─ .github/workflows/      CI 配置
 ├─ config.json / settings.json
 ├─ release/               可分发发行版
 ├─ data/
@@ -253,9 +259,11 @@ GUI 内定时任务：在“设置 → 定时任务”添加模式、数量、�
 │  ├─ images/              图片（likes / bookmarks / manual）
 │  ├─ logs/                运行日志
 │  ├─ lists/               下载记录、采集列表、失败记录、映射等
+│  │  ├─ failures.json     跨重启保留的失败记录
+│  │  └─ video_meta.txt    推文 URL ↔ 视频媒体 ID 映射
 │  ├─ profiles/            主账号与小号浏览器配置
 │  ├─ cookies/             Cookie 文件
-│  ├─ jobs/                任务持久化记录
+│  ├─ jobs/                任务持久化记录（含 queue.json 队列）
 │  ├─ duplicates/          去重移动目录
 │  ├─ index.json           导出索引
 │  └─ index.csv            导出索引
