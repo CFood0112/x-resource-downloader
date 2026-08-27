@@ -75,17 +75,16 @@ async function readSnapshot(page) {
       const uploader = match ? match[1] : '';
       const timeEl = article.querySelector('time[datetime]');
       const date = timeEl ? timeEl.getAttribute('datetime').slice(0, 10) : '';
-      const isVideo =
-        !!article.querySelector('video') ||
-        !!article.querySelector('[data-testid="videoPlayer"]');
-      if (isVideo) continue;
-
+      const videoEl = article.querySelector('video');
+      const isVideo = !!videoEl || !!article.querySelector('[data-testid="videoPlayer"]');
+      const posterBase = videoEl && videoEl.poster ? videoEl.poster.split('?')[0] : '';
       const images = [];
       for (const img of article.querySelectorAll('img[src*="pbs.twimg.com/media/"]')) {
         const src = img.src;
         const mediaMatch = src.match(/\/media\/([A-Za-z0-9_-]+)\?/);
         if (!mediaMatch) continue;
         const base = src.split('?')[0];
+        if (isVideo && posterBase && base === posterBase) continue;
         const format = (src.match(/format=([a-z0-9]+)/) || [null, 'jpg'])[1];
         images.push({
           mediaId: mediaMatch[1],

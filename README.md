@@ -383,6 +383,8 @@ Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 
 > `cookies.txt` 及配置文件包含账号登录凭证，请勿分享、外传或提交到公开仓库。
 
+安全策略与漏洞提交流程见 [SECURITY.md](SECURITY.md)。
+
 ## 🤖 开发说明
 
 > 本项目开发过程中使用 AI 工具辅助编码与文档优化，核心逻辑、交互设计与测试均由人工完成。

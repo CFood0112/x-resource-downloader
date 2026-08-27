@@ -62,37 +62,41 @@ function loadArchiveSkipUrls() {
   } catch {
     /* no persistent video meta yet */
   }
-  try {
-    const files = fs
-      .readdirSync(logsDir)
-      .filter((f) => f.endsWith('.log'));
-    for (const file of files) {
-      const text = fs.readFileSync(path.join(logsDir, file), 'utf8');
-      let currentUrl = '';
-      for (const line of text.split(/\r?\n/)) {
-        let m = line.match(/Extracting URL: (https:\/\/x\.com\/[^/\s]+\/status\/\d+)/);
-        if (m) {
-          currentUrl = m[1];
-          continue;
-        }
-        m = line.match(/\[info\]\s+(\d+):\s+Downloading/);
-        if (m && currentUrl) {
-          urlByMedia.set(m[1], currentUrl);
-          continue;
-        }
-        m = line.match(/^\[download\]\s+(\d+):\s+.+has already been recorded in the archive/);
-        if (m && currentUrl) {
-          urlByMedia.set(m[1], currentUrl);
-          continue;
-        }
-        m = line.match(/\[download\] Destination: .*?(\d{15,20})[^\d]*\.mp4/);
-        if (m && currentUrl) {
-          urlByMedia.set(m[1], currentUrl);
+  if (process.env.COLLECT_REPAIR_META === '1') {
+    try {
+      const files = fs
+        .readdirSync(logsDir)
+        .filter((f) => f.endsWith('.log'));
+      for (const file of files) {
+        const text = fs.readFileSync(path.join(logsDir, file), 'utf8');
+        let currentUrl = '';
+        for (const line of text.split(/\r?\n/)) {
+          let m = line.match(/Extracting URL: (https:\/\/x\.com\/[^/\s]+\/status\/\d+)/);
+          if (m) {
+            currentUrl = m[1];
+            continue;
+          }
+          m = line.match(/\[info\]\s+(\d+):\s+Downloading/);
+          if (m && currentUrl) {
+            urlByMedia.set(m[1], currentUrl);
+            continue;
+          }
+          m = line.match(/^\[download\]\s+(\d+):\s+.+has already been recorded in the archive/);
+          if (m && currentUrl) {
+            urlByMedia.set(m[1], currentUrl);
+            continue;
+          }
+          m = line.match(/\[download\] Destination: .*?(\d{15,20})[^\d]*\.mp4/);
+          if (m && currentUrl) {
+            urlByMedia.set(m[1], currentUrl);
+          }
         }
       }
+    } catch {
+      /* no logs yet */
     }
-  } catch {
-    /* no logs yet */
+  } else if (urlByMedia.size < archiveIds.size) {
+    log(`video_meta 映射 ${urlByMedia.size}/${archiveIds.size}，如需补全请运行 rebuild_video_meta.js 或 map_remaining_video_meta.js`);
   }
 
   const skip = new Set();
@@ -313,7 +317,10 @@ async function collectLikedVideos(page, username) {
       if (!allSeenIds.has(item.id)) {
         allSeenIds.add(item.id);
         newCount++;
-        if (deepestSeenId === null || BigInt(item.id) < deepestSeenId) {
+        if (
+          (resumeId === null || BigInt(item.id) <= resumeId) &&
+          (deepestSeenId === null || BigInt(item.id) < deepestSeenId)
+        ) {
           deepestSeenId = BigInt(item.id);
         }
       }
@@ -381,8 +388,9 @@ async function collectLikedVideos(page, username) {
       break;
     }
 
-    await page.evaluate(() => window.scrollBy(0, 2400));
-    await sleep(1300 + Math.random() * 900);
+    const fastResume = isBackfill && resumeId !== null;
+    await page.evaluate(() => window.scrollBy(0, fastResume ? 6000 : 2400));
+    await sleep(fastResume ? 500 + Math.random() * 500 : 1300 + Math.random() * 900);
     saveBackfillPosition();
   }
 

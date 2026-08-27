@@ -28,6 +28,48 @@ const writeJson = (p, data) => {
   fs.writeFileSync(p, JSON.stringify(data, null, 2), 'utf8');
 };
 
+function persistQueue() {
+  try {
+    fs.writeFileSync(QUEUE_FILE, JSON.stringify({ paused: queuePaused, queue }, null, 2), 'utf8');
+  } catch {
+    /* ignore */
+  }
+}
+
+function readPersistentFailures() {
+  try {
+    const data = JSON.parse(fs.readFileSync(failuresFile, 'utf8'));
+    if (Array.isArray(data)) return data.slice(0, 1000);
+    if (Array.isArray(data.failures)) return data.failures.slice(0, 1000);
+  } catch {
+    /* ignore */
+  }
+  return [];
+}
+
+function readPersistentFailureKind() {
+  try {
+    const data = JSON.parse(fs.readFileSync(failuresFile, 'utf8'));
+    if (data && typeof data.kind === 'string') return data.kind;
+  } catch {
+    /* ignore */
+  }
+  return '';
+}
+
+function savePersistentFailures(failures, kind) {
+  try {
+    const capped = Array.isArray(failures) ? failures.slice(0, 1000) : [];
+    fs.writeFileSync(
+      failuresFile,
+      JSON.stringify({ kind, updatedAt: new Date().toISOString(), failures: capped }, null, 2),
+      'utf8'
+    );
+  } catch {
+    /* ignore */
+  }
+}
+
 const resolveRel = (p) => (path.isAbsolute(p) ? p : path.resolve(ROOT, p));
 
 function classifyError(msg = '') {
@@ -82,6 +124,8 @@ const archiveFile = resolveRel(config.archiveFile || 'archive.txt');
 const listsDir = resolveRel(config.listsDir || 'data/lists');
 const runDir = resolveRel(config.runDir || 'data/run');
 const jobsDir = resolveRel(config.jobsDir || 'data/jobs');
+const QUEUE_FILE = path.join(jobsDir, 'queue.json');
+const failuresFile = path.join(listsDir, 'failures.json');
 const LOG_DIR = resolveRel(config.logsDir || 'logs');
 const LOCK_FILE = path.join(runDir, '.gui.lock');
 const manualUrlsFile = path.join(listsDir, 'manual_urls.txt');
@@ -197,6 +241,7 @@ function writeJobFile() {
 function startNextQueued() {
   if (job || queuePaused || !queue.length) return;
   const next = queue.shift();
+  persistQueue();
   startJob(next.mode, next.body);
 }
 
@@ -459,10 +504,26 @@ let lastPushAt = 0;
 let hasEverHadClient = false;
 let shutdownTimer = null;
 let guiCloseRequested = false;
-let lastFailures = [];
-let lastFailuresKind = '';
+let lastFailuresKind = readPersistentFailureKind();
+let lastFailures = readPersistentFailures();
 let queue = [];
 let queuePaused = false;
+try {
+  const queueData = JSON.parse(fs.readFileSync(QUEUE_FILE, 'utf8'));
+  const rawQueue = Array.isArray(queueData) ? queueData : queueData.queue;
+  if (Array.isArray(rawQueue)) {
+    queue = rawQueue
+      .filter((q) => q && typeof q.mode === 'string')
+      .map((q) => ({
+        id: q.id || `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        mode: q.mode,
+        body: q.body || {},
+      }));
+  }
+  if (typeof queueData.paused === 'boolean') queuePaused = queueData.paused;
+} catch {
+  /* no persisted queue yet */
+}
 
 function publicState() {
   const s = job ? job.state : baseState();
@@ -775,6 +836,7 @@ async function runDownload(urls, force, ignoreSkips = false, source = 'likes') {
 
   const skipSet = ignoreSkips ? new Set() : readSkipSet();
   let allFailures = [];
+  const attemptMap = new Map();
   let activeBatch = filterBatchFile(urls, skipSet);
   const maxRounds = 5;
   let retryRound = 0;
@@ -811,6 +873,7 @@ async function runDownload(urls, force, ignoreSkips = false, source = 'likes') {
         skipSet.add(skippedUrl);
         appendSkipUrl(skippedUrl);
         allFailures.push({ url: skippedUrl, message: '用户已跳过' });
+        attemptMap.set(skippedUrl, 1);
         job.state.failures = [...allFailures];
         addLog(`[job] 已跳过：${skippedUrl}`);
         broadcast({ type: 'state', ...publicState() });
@@ -829,6 +892,10 @@ async function runDownload(urls, force, ignoreSkips = false, source = 'likes') {
     }
     if (job.state.failures.length === 0) break;
 
+    for (const f of job.state.failures) {
+      const key = f.url || '(未知链接)';
+      attemptMap.set(key, (attemptMap.get(key) || 0) + 1);
+    }
     const retryUrls = job.state.failures
       .map((f) => f.url)
       .filter(Boolean)
@@ -856,11 +923,41 @@ async function runDownload(urls, force, ignoreSkips = false, source = 'likes') {
     return true;
   }).map((f) => ({
     ...f,
-    attempts: f.attempts || (f.message === '用户已跳过' ? 1 : maxRounds),
+    attempts:
+      f.message === '用户已跳过'
+        ? 1
+        : Math.min(attemptMap.get(f.url || '(未知链接)') || 1, maxRounds),
     maxAttempts: maxRounds,
     category: f.category || classifyError(f.message),
   }));
   addLog(`[job] 下载结束，失败 ${job.state.failures.length} 条`);
+
+  const batchUrls = new Set();
+  try {
+    const text = fs.readFileSync(urls, 'utf8');
+    text
+      .split(/\r?\n/)
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .forEach((url) => batchUrls.add(url));
+  } catch {
+    /* ignore */
+  }
+  const existing = new Map(readPersistentFailures().map((f) => [f.url || '(未知链接)', f]));
+  const finalMap = new Map(job.state.failures.map((f) => [f.url || '(未知链接)', f]));
+  for (const url of batchUrls) {
+    const key = url || '(未知链接)';
+    if (finalMap.has(key)) existing.set(key, finalMap.get(key));
+    else existing.delete(key);
+  }
+  const merged = [...existing.values()]
+    .sort((a, b) => String(a.url || '').localeCompare(String(b.url || '')))
+    .slice(0, 1000);
+  job.state.failures = merged;
+  savePersistentFailures(merged, job.state.kind);
+  lastFailures = merged;
+  lastFailuresKind = job.state.kind;
+  addLog(`[job] 失败记录已持久化 ${merged.length} 条`);
 }
 
 async function runCollect(count, stopOnOld = false, mode = 'recent', source = 'likes', extra = '') {
@@ -913,7 +1010,12 @@ async function runCollect(count, stopOnOld = false, mode = 'recent', source = 'l
 
 function startJob(mode, body) {
   if (job) {
-    queue.push({ mode, body });
+    queue.push({
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      mode,
+      body,
+    });
+    persistQueue();
     return { ok: true, queued: true };
   }
 
@@ -1358,14 +1460,48 @@ const requestHandler = async (req, res) => {
     return;
   }
 
+  if (req.method === 'GET' && url === '/api/queue') {
+    sendJson(res, 200, { queue });
+    return;
+  }
+
+  if (req.method === 'POST' && url === '/api/queue/start') {
+    const body = await readBody(req);
+    const id = String(body.id || '');
+    const idx = queue.findIndex((q) => q.id === id);
+    if (idx === -1) {
+      sendJson(res, 404, { ok: false, error: '任务不在队列中' });
+      return;
+    }
+    const [item] = queue.splice(idx, 1);
+    persistQueue();
+    const result = startJob(item.mode, item.body || {});
+    sendJson(res, result.ok ? 200 : 409, result);
+    return;
+  }
+
+  if (req.method === 'POST' && url === '/api/queue/remove') {
+    const body = await readBody(req);
+    const id = String(body.id || '');
+    const idx = queue.findIndex((q) => q.id === id);
+    if (idx !== -1) {
+      queue.splice(idx, 1);
+      persistQueue();
+    }
+    sendJson(res, 200, { ok: true });
+    return;
+  }
+
   if (req.method === 'POST' && url === '/api/queue/pause') {
     queuePaused = true;
+    persistQueue();
     sendJson(res, 200, { ok: true });
     return;
   }
 
   if (req.method === 'POST' && url === '/api/queue/resume') {
     queuePaused = false;
+    persistQueue();
     startNextQueued();
     sendJson(res, 200, { ok: true });
     return;
@@ -1478,6 +1614,9 @@ process.on('SIGTERM', () => {
 
 startServer(preferredPort);
 setInterval(sweepClients, 10000);
+if (!queuePaused && queue.length) {
+  setTimeout(startNextQueued, 800);
+}
 
 let lastScheduleMinute = '';
 setInterval(() => {

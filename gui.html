@@ -746,6 +746,9 @@ textarea {
         <button id="addSchedule" class="secondary">添加定时任务</button>
         <div id="scheduleList" class="failure-list"></div>
 
+        <h2>等待队列</h2>
+        <div id="queuedList" class="failure-list"></div>
+
         <h2>任务历史</h2>
         <div id="jobHistory" class="failure-list"></div>
         <button id="refreshJobs" class="secondary">刷新任务历史</button>
@@ -789,6 +792,7 @@ const $ = (id) => document.getElementById(id);
 let lastState = null;
 let currentVideoFailures = [];
 let currentImageFailures = [];
+let lastQueueLength = -1;
 let currentSchedules = [];
 
 function statusText(status) {
@@ -923,6 +927,10 @@ function applyState(payload) {
   $('fillImageFailures').disabled = !currentImageFailures.length;
   $('queueInfo').textContent = `队列 ${payload.queueLength || 0}`;
   $('pauseQueue').textContent = payload.queuePaused ? '恢复队列' : '暂停队列';
+  if (payload.queueLength !== lastQueueLength) {
+    lastQueueLength = payload.queueLength || 0;
+    refreshQueue();
+  }
 
   if (payload.settings) {
     const wizardDone = !!payload.settings.wizardDone;
@@ -1070,6 +1078,7 @@ document.querySelectorAll('[data-run]').forEach((btn) => {
       const data = await res.json().catch(() => ({}));
       alert(data.error || '启动失败');
     }
+    refreshQueue();
   });
 });
 
@@ -1175,6 +1184,50 @@ $('pauseQueue').addEventListener('click', async () => {
   applyState(await res.json());
 });
 
+async function refreshQueue() {
+  const res = await fetch('/api/queue');
+  const data = await res.json().catch(() => ({ queue: [] }));
+  const list = $('queuedList');
+  if (!list) return;
+  const entries = data.queue || [];
+  list.innerHTML = entries.length
+    ? entries
+        .map((q) => {
+          const b = q.body || {};
+          const label = [
+            q.mode,
+            b.source || '',
+            b.count ? `数量 ${b.count}` : '',
+            b.links && b.links.length ? `${b.links.length} 条链接` : '',
+          ]
+            .filter(Boolean)
+            .join(' · ');
+          return `<div class="failure-item"><div class="failure-meta"><div>${escapeHtml(label)}</div></div><button data-queue-start="${escapeHtml(q.id)}">开始</button><button data-queue-remove="${escapeHtml(q.id)}">移除</button></div>`;
+        })
+        .join('')
+    : '<div class="status-note">队列为空</div>';
+  document.querySelectorAll('[data-queue-start]').forEach((b) => {
+    b.addEventListener('click', async () => {
+      await fetch('/api/queue/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: b.dataset.queueStart }),
+      });
+      refreshJobs();
+    });
+  });
+  document.querySelectorAll('[data-queue-remove]').forEach((b) => {
+    b.addEventListener('click', async () => {
+      await fetch('/api/queue/remove', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: b.dataset.queueRemove }),
+      });
+      refreshJobs();
+    });
+  });
+}
+
 async function refreshJobs() {
   const res = await fetch('/api/jobs');
   const data = await res.json().catch(() => ({ jobs: [] }));
@@ -1195,6 +1248,7 @@ async function refreshJobs() {
       refreshJobs();
     });
   });
+  refreshQueue();
 }
 
 $('refreshJobs').addEventListener('click', refreshJobs);
