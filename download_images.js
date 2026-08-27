@@ -38,6 +38,9 @@ function log(msg) {
 
 function loadCookieHeader() {
   if (process.env.IMAGE_NO_COOKIES === '1') return '';
+  if (process.env.ACTIVE_DOWNLOAD_COOKIE && fs.existsSync(process.env.ACTIVE_DOWNLOAD_COOKIE)) {
+    return readCookieHeader(process.env.ACTIVE_DOWNLOAD_COOKIE);
+  }
   let settings = {};
   try {
     settings = JSON.parse(fs.readFileSync(path.join(root, 'settings.json'), 'utf8'));
@@ -48,6 +51,10 @@ function loadCookieHeader() {
     settings.useDownloadAccount && fs.existsSync(downloadCookiesFile)
       ? downloadCookiesFile
       : mainCookiesFile;
+  return readCookieHeader(file);
+}
+
+function readCookieHeader(file) {
   try {
     const text = fs.readFileSync(file, 'utf8');
     const parts = [];
@@ -64,6 +71,9 @@ function loadCookieHeader() {
 
 function loadCookieFile() {
   if (process.env.IMAGE_NO_COOKIES === '1') return '';
+  if (process.env.ACTIVE_DOWNLOAD_COOKIE && fs.existsSync(process.env.ACTIVE_DOWNLOAD_COOKIE)) {
+    return process.env.ACTIVE_DOWNLOAD_COOKIE;
+  }
   let currentSettings = {};
   try {
     currentSettings = JSON.parse(fs.readFileSync(path.join(root, 'settings.json'), 'utf8'));

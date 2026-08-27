@@ -74,6 +74,7 @@ const downloadCookiesFile = resolveRel(config.downloadCookiesFile || 'cookies_do
 const archiveFile = resolveRel(config.archiveFile || 'archive.txt');
 const listsDir = resolveRel(config.listsDir || 'data/lists');
 const runDir = resolveRel(config.runDir || 'data/run');
+const jobsDir = resolveRel(config.jobsDir || 'data/jobs');
 const LOG_DIR = resolveRel(config.logsDir || 'logs');
 const LOCK_FILE = path.join(runDir, '.gui.lock');
 const manualUrlsFile = path.join(listsDir, 'manual_urls.txt');
@@ -86,10 +87,37 @@ const imageSkipRequestFile = path.join(listsDir, 'image_skip_request.txt');
 const videoMetaFile = path.join(listsDir, 'video_meta.txt');
 const downloadDir = resolveRel(config.downloadDir || 'videos');
 const videoMetaSeen = new Set();
+const cookiesBase = path.dirname(cookiesFile);
+let accountIndex = 0;
+
+function listDownloadAccounts() {
+  const names = [];
+  try {
+    for (const f of fs.readdirSync(cookiesBase)) {
+      const m = f.match(/^cookies_download_(.+)\.txt$/);
+      if (m) names.push(m[1]);
+    }
+  } catch {
+    /* ignore */
+  }
+  if (!names.length && fs.existsSync(downloadCookiesFile)) names.push('');
+  return names;
+}
+
+function nextDownloadCookieFile() {
+  if (!settings.useDownloadAccount) return cookiesFile;
+  const names = listDownloadAccounts();
+  if (!names.length) return cookiesFile;
+  const name = names[accountIndex++ % names.length];
+  return name
+    ? path.join(cookiesBase, `cookies_download_${name}.txt`)
+    : downloadCookiesFile;
+}
 
 fs.mkdirSync(listsDir, { recursive: true });
 fs.mkdirSync(runDir, { recursive: true });
 fs.mkdirSync(LOG_DIR, { recursive: true });
+fs.mkdirSync(jobsDir, { recursive: true });
 
 function readSkipSet() {
   const set = new Set();
@@ -124,6 +152,45 @@ function recordVideoMeta(url, mediaId) {
   } catch {
     /* ignore */
   }
+}
+
+function writeJobFile() {
+  if (!job) return;
+  let urls = [];
+  try {
+    if (fs.existsSync(activeBatchFile)) {
+      urls = fs
+        .readFileSync(activeBatchFile, 'utf8')
+        .split(/\r?\n/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+    }
+  } catch {
+    /* ignore */
+  }
+  const data = {
+    id: job.state.taskId,
+    kind: job.state.kind,
+    mode: job._mode || '',
+    source: job.state.source || '',
+    body: job._body || {},
+    status: job.state.status || 'running',
+    createdAt: job._startedAt,
+    updatedAt: new Date().toISOString(),
+    failures: lastFailures.length ? lastFailures : job.state.failures,
+    urls,
+  };
+  try {
+    fs.writeFileSync(path.join(jobsDir, `${data.id}.json`), JSON.stringify(data, null, 2), 'utf8');
+  } catch {
+    /* ignore */
+  }
+}
+
+function startNextQueued() {
+  if (job || queuePaused || !queue.length) return;
+  const next = queue.shift();
+  startJob(next.mode, next.body);
 }
 
 function writeListFile(file, urls) {
@@ -302,10 +369,9 @@ function buildOutputTemplate(source = 'likes') {
 }
 
 function buildYtdlpArgs(urls, force, source = 'likes') {
-  const activeCookies =
-    settings.useDownloadAccount && fs.existsSync(downloadCookiesFile)
-      ? downloadCookiesFile
-      : cookiesFile;
+  const activeCookies = settings.useDownloadAccount
+    ? nextDownloadCookieFile()
+    : cookiesFile;
   const args = [
     '--batch-file', urls,
     '--cookies', activeCookies,
@@ -381,6 +447,8 @@ let shutdownTimer = null;
 let guiCloseRequested = false;
 let lastFailures = [];
 let lastFailuresKind = '';
+let queue = [];
+let queuePaused = false;
 
 function publicState() {
   const s = job ? job.state : baseState();
@@ -388,6 +456,8 @@ function publicState() {
     state: s,
     lastFailures,
     lastFailuresKind,
+    queueLength: queue.length,
+    queuePaused,
     settings,
     config: {
       username: config.username || '',
@@ -395,6 +465,7 @@ function publicState() {
       downloadAccountReady: fs.existsSync(downloadCookiesFile),
       downloadCookiesFile: path.basename(downloadCookiesFile),
       mainAccountReady: fs.existsSync(cookiesFile),
+      downloadAccounts: listDownloadAccounts(),
     },
   };
 }
@@ -776,7 +847,7 @@ async function runDownload(urls, force, ignoreSkips = false, source = 'likes') {
   addLog(`[job] 下载结束，失败 ${job.state.failures.length} 条`);
 }
 
-async function runCollect(count, stopOnOld = false, mode = 'recent', source = 'likes') {
+async function runCollect(count, stopOnOld = false, mode = 'recent', source = 'likes', extra = '') {
   job.state.status = 'collecting';
   const action = stopOnOld ? '扫描喜欢列表并下载新增视频' : `采集最近 ${count} 条喜欢视频`;
   job.state.message = `正在${action}`;
@@ -793,6 +864,7 @@ async function runCollect(count, stopOnOld = false, mode = 'recent', source = 'l
       COLLECT_STOP_ON_OLD: stopOnOld ? '1' : '0',
       COLLECT_MODE: mode,
       COLLECT_SOURCE: source,
+      COLLECT_EXTRA: extra,
     },
     (line) => {
       addLog(line);
@@ -824,7 +896,10 @@ async function runCollect(count, stopOnOld = false, mode = 'recent', source = 'l
 }
 
 function startJob(mode, body) {
-  if (job) return { ok: false, error: '已有任务在运行' };
+  if (job) {
+    queue.push({ mode, body });
+    return { ok: true, queued: true };
+  }
 
   job = {
     state: baseState(),
@@ -833,6 +908,9 @@ function startJob(mode, body) {
     skipRequested: false,
     startedAt: Date.now(),
   };
+  job._mode = mode;
+  job._body = body || {};
+  job._startedAt = new Date().toISOString();
   job.state.kind = ['images', 'images_backfill', 'images_manual'].includes(mode)
     ? 'images'
     : 'video';
@@ -848,8 +926,11 @@ function startJob(mode, body) {
     if (job) {
       job.state.elapsed = Math.floor((Date.now() - job.startedAt) / 1000);
       pushState(true);
+      if (job.state.elapsed % 10 === 0) writeJobFile();
     }
   }, 1000);
+
+  writeJobFile();
 
   broadcast({ type: 'state', ...publicState() });
 
@@ -864,7 +945,7 @@ function startJob(mode, body) {
         addLog(`[job] 收到 ${links.length} 条手动链接`);
         await runDownload(manualUrlsFile, !!settings.forceRedownload, true, 'manual');
       } else if (mode === 'refresh') {
-        await runCollect(20, true, 'recent', body.source || 'likes');
+        await runCollect(20, true, 'recent', body.source || 'likes', body.extra || '');
       } else if (mode === 'login_download') {
         job.state.status = 'logging_in';
         job.state.message = '正在打开下载小号登录窗口';
@@ -873,7 +954,7 @@ function startJob(mode, body) {
         const code = await runProcess(
           nodePath,
           [LOGIN_JS, CONFIG_PATH],
-          { ...process.env, NODE_PATH: nodeModules },
+          { ...process.env, NODE_PATH: nodeModules, ACCOUNT_NAME: body.accountName || '' },
           (line) => {
             addLog(line);
             pushState();
@@ -908,9 +989,9 @@ function startJob(mode, body) {
         job.state.message = '主账号 Cookie 已保存';
         addLog('[job] 主账号 Cookie 已保存');
       } else if (mode === 'download') {
-        await runCollect(50, true, 'recent', body.source || 'likes');
+        await runCollect(50, true, 'recent', body.source || 'likes', body.extra || '');
       } else if (mode === 'backfill') {
-        await runCollect(Number(body.count) || 50, false, 'backfill', body.source || 'likes');
+        await runCollect(Number(body.count) || 50, false, 'backfill', body.source || 'likes', body.extra || '');
       } else if (mode === 'images') {
         const imageSource = body.source === 'bookmarks' ? 'bookmarks' : 'likes';
         const imageCount = Number(body.count) || 50;
@@ -927,6 +1008,7 @@ function startJob(mode, body) {
             IMAGE_SOURCE: imageSource,
             IMAGE_MAX: String(imageCount),
             IMAGE_MODE: 'recent',
+            IMAGE_EXTRA: body.extra || '',
           },
           (line) => {
             addLog(line);
@@ -942,7 +1024,11 @@ function startJob(mode, body) {
         const c2 = await runProcess(
           nodePath,
           [DOWNLOAD_IMAGES_BROWSER_JS, CONFIG_PATH],
-          { ...process.env, IMAGE_SOURCE: imageSource },
+          {
+            ...process.env,
+            IMAGE_SOURCE: imageSource,
+            ACTIVE_DOWNLOAD_COOKIE: settings.useDownloadAccount ? nextDownloadCookieFile() : '',
+          },
           parseImageLine
         );
         if (job.cancelled) return;
@@ -963,6 +1049,7 @@ function startJob(mode, body) {
             IMAGE_SOURCE: imageSource,
             IMAGE_MAX: String(imageCount),
             IMAGE_MODE: 'backfill',
+            IMAGE_EXTRA: body.extra || '',
           },
           (line) => {
             addLog(line);
@@ -978,7 +1065,11 @@ function startJob(mode, body) {
         const c2 = await runProcess(
           nodePath,
           [DOWNLOAD_IMAGES_BROWSER_JS, CONFIG_PATH],
-          { ...process.env, IMAGE_SOURCE: imageSource },
+          {
+            ...process.env,
+            IMAGE_SOURCE: imageSource,
+            ACTIVE_DOWNLOAD_COOKIE: settings.useDownloadAccount ? nextDownloadCookieFile() : '',
+          },
           parseImageLine
         );
         if (job.cancelled) return;
@@ -1020,7 +1111,11 @@ function startJob(mode, body) {
         const c2 = await runProcess(
           nodePath,
           [DOWNLOAD_IMAGES_BROWSER_JS, CONFIG_PATH],
-          { ...process.env, IMAGE_SOURCE: 'manual' },
+          {
+            ...process.env,
+            IMAGE_SOURCE: 'manual',
+            ACTIVE_DOWNLOAD_COOKIE: settings.useDownloadAccount ? nextDownloadCookieFile() : '',
+          },
           parseImageLine
         );
         if (job.cancelled) return;
@@ -1029,7 +1124,7 @@ function startJob(mode, body) {
         const count =
           mode === '50' ? 50 : mode === '100' ? 100 : Number(body.count);
         if (!Number.isInteger(count) || count <= 0) throw new Error('采集数量无效');
-        await runCollect(count, false, 'recent', body.source || 'likes');
+        await runCollect(count, false, 'recent', body.source || 'likes', body.extra || '');
       }
 
       if (!job.cancelled) {
@@ -1050,10 +1145,12 @@ function startJob(mode, body) {
         writeJobFiles();
         lastFailures = job.state.failures;
         lastFailuresKind = job.state.kind;
+        writeJobFile();
         broadcast({ type: 'state', ...publicState() });
         job = null;
       }
       scheduleAutoShutdown();
+      startNextQueued();
     }
   })();
 
@@ -1219,6 +1316,54 @@ const requestHandler = async (req, res) => {
       sendJson(res, 200, { ok: true });
     } else {
       sendJson(res, 409, { ok: false, error: '当前没有正在下载的任务' });
+    }
+    return;
+  }
+
+  if (req.method === 'GET' && url === '/api/jobs') {
+    let jobs = [];
+    try {
+      jobs = fs
+        .readdirSync(jobsDir)
+        .filter((f) => f.endsWith('.json'))
+        .map((f) => {
+          try {
+            return JSON.parse(fs.readFileSync(path.join(jobsDir, f), 'utf8'));
+          } catch {
+            return null;
+          }
+        })
+        .filter(Boolean)
+        .sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
+    } catch {
+      /* ignore */
+    }
+    sendJson(res, 200, { jobs });
+    return;
+  }
+
+  if (req.method === 'POST' && url === '/api/queue/pause') {
+    queuePaused = true;
+    sendJson(res, 200, { ok: true });
+    return;
+  }
+
+  if (req.method === 'POST' && url === '/api/queue/resume') {
+    queuePaused = false;
+    startNextQueued();
+    sendJson(res, 200, { ok: true });
+    return;
+  }
+
+  if (req.method === 'POST' && url === '/api/jobs/resume') {
+    const body = await readBody(req);
+    const file = path.join(jobsDir, `${String(body.id || '').replace(/[^a-zA-Z0-9-]/g, '')}.json`);
+    try {
+      const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+      const result = startJob(data.mode, data.body || {});
+      sendJson(res, 200, result);
+    } catch {
+      sendJson(res, 404, { ok: false, error: '任务不存在' });
     }
     return;
   }

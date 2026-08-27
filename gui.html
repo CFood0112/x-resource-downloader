@@ -430,6 +430,8 @@ textarea {
     <div class="brand">X 资源下载器</div>
     <div class="top-actions">
       <div class="conn" id="conn">连接中</div>
+      <span id="queueInfo" class="conn">队列 0</span>
+      <button id="pauseQueue" class="secondary exit-btn">暂停队列</button>
       <button id="exitGui" class="secondary exit-btn">退出</button>
     </div>
   </header>
@@ -461,7 +463,15 @@ textarea {
         <select id="videoSource">
           <option value="likes">喜欢</option>
           <option value="bookmarks">书签</option>
+          <option value="search">搜索结果</option>
+          <option value="replies">我的回复</option>
+          <option value="following">关注列表</option>
+          <option value="list">自定义列表</option>
         </select>
+      </div>
+      <div class="field" id="videoSourceExtraWrap" style="display:none">
+        <label for="videoSourceExtra">关键词或列表链接</label>
+        <input id="videoSourceExtra" type="text" placeholder="https://x.com/i/lists/...">
       </div>
 
       <div class="field">
@@ -547,7 +557,15 @@ textarea {
           <select id="imageSource">
             <option value="likes">喜欢</option>
             <option value="bookmarks">书签</option>
+            <option value="search">搜索结果</option>
+            <option value="replies">我的回复</option>
+            <option value="following">关注列表</option>
+            <option value="list">自定义列表</option>
           </select>
+        </div>
+        <div class="field" id="imageSourceExtraWrap" style="display:none">
+          <label for="imageSourceExtra">关键词或列表链接</label>
+          <input id="imageSourceExtra" type="text" placeholder="https://x.com/i/lists/...">
         </div>
         <div class="field">
           <label for="imageCount">数量</label>
@@ -682,8 +700,17 @@ textarea {
         </label>
         <button id="loginMain" data-run="login_main" class="secondary">更换主账号</button>
         <button id="loginDownload" data-run="login_download" class="secondary">更换/登录小号</button>
+        <div class="field">
+          <label for="accountName">小号名称（可选，用于账号池）</label>
+          <input id="accountName" type="text" placeholder="例如 acc1">
+        </div>
+        <div id="accountPoolStatus" class="status-note">无小号</div>
         <div id="downloadAccountStatus" class="status-note">未登录</div>
         <button id="saveSettings" class="secondary">保存设置</button>
+
+        <h2>任务历史</h2>
+        <div id="jobHistory" class="failure-list"></div>
+        <button id="refreshJobs" class="secondary">刷新任务历史</button>
       </section>
     </main>
   </div>
@@ -855,6 +882,8 @@ function applyState(payload) {
   renderFailures('imageFailuresList', currentImageFailures);
   $('fillVideoFailures').disabled = !currentVideoFailures.length;
   $('fillImageFailures').disabled = !currentImageFailures.length;
+  $('queueInfo').textContent = `队列 ${payload.queueLength || 0}`;
+  $('pauseQueue').textContent = payload.queuePaused ? '恢复队列' : '暂停队列';
 
   if (payload.settings) {
     const wizardDone = !!payload.settings.wizardDone;
@@ -891,6 +920,10 @@ function applyState(payload) {
     $('downloadAccountStatus').textContent = payload.config.downloadAccountReady
       ? `已配置 ${payload.config.downloadCookiesFile}`
       : '未登录';
+    const accounts = payload.config.downloadAccounts || [];
+    $('accountPoolStatus').textContent = accounts.length
+      ? `账号池：${accounts.join(', ')}`
+      : '无小号';
   }
 }
 
@@ -932,8 +965,14 @@ document.querySelectorAll('[data-run]').forEach((btn) => {
         .map((s) => s.trim())
         .filter(Boolean);
     }
+    if (mode === 'login_download') {
+      body.accountName = $('accountName').value.trim();
+    }
     if (mode === 'images') {
       body.source = $('imageSource').value;
+      body.extra = ['search', 'list'].includes(body.source)
+        ? $('imageSourceExtra').value.trim()
+        : '';
       body.count =
         btn.dataset.count === 'custom'
           ? Number($('imageCount').value)
@@ -941,6 +980,9 @@ document.querySelectorAll('[data-run]').forEach((btn) => {
     }
     if (mode === 'images_backfill') {
       body.source = $('imageSource').value;
+      body.extra = ['search', 'list'].includes(body.source)
+        ? $('imageSourceExtra').value.trim()
+        : '';
       body.count =
         btn.dataset.count === 'custom'
           ? Number($('imageCount').value)
@@ -954,6 +996,9 @@ document.querySelectorAll('[data-run]').forEach((btn) => {
     }
     if (['50', '100', 'custom', 'download', 'refresh', 'backfill'].includes(mode)) {
       body.source = $('videoSource').value;
+      body.extra = ['search', 'list'].includes(body.source)
+        ? $('videoSourceExtra').value.trim()
+        : '';
     }
     const res = await fetch('/api/run', {
       method: 'POST',
@@ -1062,6 +1107,50 @@ $('onlyErrorsImage').addEventListener('change', () => {
   if (lastState) applyState(lastState);
 });
 
+$('pauseQueue').addEventListener('click', async () => {
+  const resume = $('pauseQueue').textContent === '恢复队列';
+  await fetch(`/api/queue/${resume ? 'resume' : 'pause'}`, { method: 'POST' });
+  const res = await fetch('/api/state');
+  applyState(await res.json());
+});
+
+async function refreshJobs() {
+  const res = await fetch('/api/jobs');
+  const data = await res.json().catch(() => ({ jobs: [] }));
+  $('jobHistory').innerHTML = (data.jobs || [])
+    .slice(0, 20)
+    .map(
+      (j) =>
+        `<div class="failure-item"><div class="failure-meta"><div>[${escapeHtml(j.id)}] ${escapeHtml(j.mode)} · ${escapeHtml(j.status)} · ${escapeHtml(j.updatedAt || '')}</div><button data-resume="${escapeHtml(j.id)}">继续</button></div></div>`
+    )
+    .join('');
+  document.querySelectorAll('[data-resume]').forEach((b) => {
+    b.addEventListener('click', async () => {
+      await fetch('/api/jobs/resume', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: b.dataset.resume }),
+      });
+      refreshJobs();
+    });
+  });
+}
+
+$('refreshJobs').addEventListener('click', refreshJobs);
+
+function syncSourceExtras() {
+  const vs = $('videoSource').value;
+  $('videoSourceExtraWrap').style.display =
+    vs === 'search' || vs === 'list' ? 'block' : 'none';
+  const is = $('imageSource').value;
+  $('imageSourceExtraWrap').style.display =
+    is === 'search' || is === 'list' ? 'block' : 'none';
+}
+
+$('videoSource').addEventListener('change', syncSourceExtras);
+$('imageSource').addEventListener('change', syncSourceExtras);
+syncSourceExtras();
+
 $('exitGui').addEventListener('click', async () => {
   await fetch('/api/gui-close', { method: 'POST' });
   window.close();
@@ -1093,6 +1182,7 @@ fetch('/api/state')
   .then((payload) => {
     $('conn').textContent = '已连接';
     applyState(payload);
+    refreshJobs();
   })
   .catch(() => {
     $('conn').textContent = '无法连接';

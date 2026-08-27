@@ -12,7 +12,8 @@ const profileDir = resolveRel(config.profileDir);
 const imageUrlsFile = resolveRel(config.imageUrlsFile || 'image_urls.txt');
 const imageArchiveFile = resolveRel(config.imageArchiveFile || 'image_archive.txt');
 const imageMetaFile = resolveRel(config.imageMetaFile || 'image_meta.txt');
-const source = process.env.IMAGE_SOURCE === 'bookmarks' ? 'bookmarks' : 'likes';
+const source = process.env.IMAGE_SOURCE || 'likes';
+const sourceExtra = process.env.IMAGE_EXTRA || '';
 const imageMode = process.env.IMAGE_MODE === 'backfill' ? 'backfill' : 'recent';
 const maxImages = Number(process.env.IMAGE_MAX) || 50;
 const configuredMaxScroll = Number(config.maxScrollAttempts) || 300;
@@ -148,12 +149,30 @@ async function main() {
     let targetUrl;
     if (source === 'bookmarks') {
       targetUrl = 'https://x.com/i/bookmarks';
+    } else if (source === 'search') {
+      targetUrl = `https://x.com/search?q=${encodeURIComponent(sourceExtra)}&src=typed_query&f=live`;
+    } else if (source === 'replies') {
+      const username = await resolveUsername(page);
+      targetUrl = `https://x.com/${username}/with_replies`;
+    } else if (source === 'following') {
+      targetUrl = 'https://x.com/home';
+    } else if (source === 'list') {
+      targetUrl = sourceExtra || 'https://x.com/i/lists';
     } else {
       const username = await resolveUsername(page);
       targetUrl = `https://x.com/${username}/likes`;
     }
-    log(`打开${source === 'bookmarks' ? '书签' : '喜欢'}页面：${targetUrl}`);
+    log(`打开来源页面：${targetUrl}`);
     await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
+    if (source === 'following') {
+      await page
+        .locator('a[href="/home"]')
+        .filter({ hasText: 'Following' })
+        .first()
+        .click()
+        .catch(() => {});
+      await sleep(2000);
+    }
     await page.waitForSelector('article', { timeout: 60000 }).catch(() => {});
 
     const collected = new Map();

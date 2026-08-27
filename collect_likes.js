@@ -23,7 +23,8 @@ const loginTimeoutMs = Number(config.loginTimeoutMs) || 600000;
 const stopOnOld = process.env.COLLECT_STOP_ON_OLD === '1';
 const collectMode = process.env.COLLECT_MODE || 'recent';
 const isBackfill = collectMode === 'backfill';
-const collectSource = process.env.COLLECT_SOURCE === 'bookmarks' ? 'bookmarks' : 'likes';
+const collectSource = process.env.COLLECT_SOURCE || 'likes';
+const collectExtra = process.env.COLLECT_EXTRA || '';
 const configuredMaxScroll = Number(config.maxScrollAttempts) || 300;
 const envMaxScroll = Number(process.env.COLLECT_MAX_ATTEMPTS);
 const maxScrollAttempts =
@@ -166,12 +167,31 @@ async function readSnapshot(page) {
 }
 
 async function collectLikedVideos(page, username) {
-  const targetUrl =
-    collectSource === 'bookmarks'
-      ? 'https://x.com/i/bookmarks'
-      : `https://x.com/${username}/likes`;
+  let targetUrl;
+  if (collectSource === 'bookmarks') {
+    targetUrl = 'https://x.com/i/bookmarks';
+  } else if (collectSource === 'search') {
+    targetUrl = `https://x.com/search?q=${encodeURIComponent(collectExtra)}&src=typed_query&f=live`;
+  } else if (collectSource === 'replies') {
+    targetUrl = `https://x.com/${username}/with_replies`;
+  } else if (collectSource === 'following') {
+    targetUrl = 'https://x.com/home';
+  } else if (collectSource === 'list') {
+    targetUrl = collectExtra || 'https://x.com/i/lists';
+  } else {
+    targetUrl = `https://x.com/${username}/likes`;
+  }
   log(`打开${collectSource === 'bookmarks' ? '书签' : '喜欢'}列表：${targetUrl}`);
   await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
+  if (collectSource === 'following') {
+    await page
+      .locator('a[href="/home"]')
+      .filter({ hasText: 'Following' })
+      .first()
+      .click()
+      .catch(() => {});
+    await sleep(2000);
+  }
   await page.waitForSelector('article', { timeout: 60000 }).catch(() => {});
 
   const processedIds = new Set();

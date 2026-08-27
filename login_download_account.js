@@ -8,8 +8,13 @@ const root = path.dirname(configPath);
 
 const resolveRel = (p) => (path.isAbsolute(p) ? p : path.resolve(root, p));
 
-const profileDir = resolveRel(config.downloadProfileDir || 'profile_download');
-const cookiesFile = resolveRel(config.downloadCookiesFile || 'cookies_download.txt');
+const accountName = process.env.ACCOUNT_NAME || '';
+const profileDir = accountName
+  ? path.join(path.dirname(resolveRel(config.profileDir)), `download_${accountName}`)
+  : resolveRel(config.downloadProfileDir || 'profile_download');
+const cookiesFile = accountName
+  ? path.join(path.dirname(resolveRel(config.cookiesFile)), `cookies_download_${accountName}.txt`)
+  : resolveRel(config.downloadCookiesFile || 'cookies_download.txt');
 const loginTimeoutMs = Number(config.loginTimeoutMs) || 600000;
 
 function log(msg) {
