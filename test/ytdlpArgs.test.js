@@ -45,7 +45,7 @@ test('builds output template by source folder', () => {
     source: 'bookmarks',
     videoSettings: { folderMode: 'uploader_month', nameMode: 'structured_title' },
   });
-  assert.match(template, /^D:\\videos[\\/]bookmarks/);
+  assert.match(template, /^D:[\\/]videos[\\/]bookmarks/);
   assert.match(template, /uploader/);
   assert.match(template, /upload_date/);
 });
