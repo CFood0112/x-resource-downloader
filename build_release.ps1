@@ -51,6 +51,10 @@ foreach ($f in $files) {
 
 Copy-Item -LiteralPath (Join-Path $root 'README.md') -Destination (Join-Path $dst 'README.md') -Force
 Copy-Item -LiteralPath (Join-Path $root 'LICENSE') -Destination (Join-Path $dst 'LICENSE') -Force
+$screenshots = Join-Path $root 'screenshots'
+if (Test-Path $screenshots) {
+    Copy-Item -LiteralPath $screenshots -Destination (Join-Path $dst 'screenshots') -Recurse -Force
+}
 Copy-Item -LiteralPath (Join-Path $root 'release_config.json') -Destination (Join-Path $program 'config.json') -Force
 
 $binDir = Join-Path $root 'release_bin'
