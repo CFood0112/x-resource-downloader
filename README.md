@@ -375,6 +375,8 @@ Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 
 本项目基于 **MIT License** 发布，完整许可文本见 [LICENSE](LICENSE)。
 
+发行版中包含的第三方组件声明与许可证见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+
 ## ⚠️ 免责与合规声明
 
 > 本工具仅供个人学习与个人收藏备份使用，不得用于商业用途、大规模批量爬取或二次分发内容。使用本工具所产生的账号风控、内容合规等风险由使用者自行承担。请遵守 X（Twitter）平台使用条款与相关法律法规。
