@@ -6,6 +6,8 @@
   "nodePath": "runtime/node/bin/node.exe",
   "nodeModules": "runtime/node/node_modules",
   "pythonPath": "runtime/python/python.exe",
+  "ytdlpPath": "yt-dlp.exe",
+  "ffmpegPath": "ffmpeg.exe",
   "profileDir": "profile",
   "downloadProfileDir": "profile_download",
   "downloadCookiesFile": "cookies_download.txt",

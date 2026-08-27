@@ -73,6 +73,8 @@ if (rawSettings.folderMode !== undefined) {
 const nodePath = resolveRel(config.nodePath || 'node.exe');
 const nodeModules = resolveRel(config.nodeModules || '');
 const pythonPath = resolveRel(config.pythonPath || 'python.exe');
+const ytdlpPath = resolveRel(config.ytdlpPath || '');
+const ffmpegPathConfig = resolveRel(config.ffmpegPath || '');
 const urlsFile = resolveRel(config.urlsFile || 'liked_urls.txt');
 const cookiesFile = resolveRel(config.cookiesFile || 'cookies.txt');
 const downloadCookiesFile = resolveRel(config.downloadCookiesFile || 'cookies_download.txt');
@@ -340,6 +342,7 @@ function probeGui(port) {
 }
 
 function getFfmpegPath() {
+  if (ffmpegPathConfig && fs.existsSync(ffmpegPathConfig)) return ffmpegPathConfig;
   try {
     const res = spawnSync(
       pythonPath,
@@ -790,12 +793,14 @@ async function runDownload(urls, force, ignoreSkips = false, source = 'likes') {
     broadcast({ type: 'state', ...publicState() });
 
     const args = buildYtdlpArgs(activeBatch, force, source);
-    const code = await runProcess(
-      pythonPath,
-      ['-m', 'yt_dlp', ...args],
-      { ...process.env, PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8' },
-      parseDownloadLine
-    );
+    const code = ytdlpPath && fs.existsSync(ytdlpPath)
+      ? await runProcess(ytdlpPath, args, { ...process.env }, parseDownloadLine)
+      : await runProcess(
+          pythonPath,
+          ['-m', 'yt_dlp', ...args],
+          { ...process.env, PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8' },
+          parseDownloadLine
+        );
 
     if (job.cancelled) return;
 

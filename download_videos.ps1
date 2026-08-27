@@ -19,6 +19,8 @@ function Resolve-FromRoot([string]$p) {
 }
 
 $pythonPath = Resolve-FromRoot $config.pythonPath
+$ytdlpPath = if ($config.ytdlpPath) { Resolve-FromRoot $config.ytdlpPath } else { '' }
+$ffmpegPathConfig = if ($config.ffmpegPath) { Resolve-FromRoot $config.ffmpegPath } else { '' }
 $activeUrlsFile = if ($UrlsFile) { Resolve-FromRoot $UrlsFile } else { Resolve-FromRoot $config.urlsFile }
 $archiveFile = Resolve-FromRoot $config.archiveFile
 
@@ -60,9 +62,13 @@ if (-not (Test-Path $activeUrlsFile)) {
 New-Item -ItemType Directory -Force -Path $downloadDir | Out-Null
 
 $ffmpeg = $null
-try {
-    $ffmpeg = (& $pythonPath -c "import imageio_ffmpeg; print(imageio_ffmpeg.get_ffmpeg_exe())").Trim()
-} catch {
+if ($ffmpegPathConfig -and (Test-Path $ffmpegPathConfig)) {
+    $ffmpeg = $ffmpegPathConfig
+} else {
+    try {
+        $ffmpeg = (& $pythonPath -c "import imageio_ffmpeg; print(imageio_ffmpeg.get_ffmpeg_exe())").Trim()
+    } catch {
+    }
 }
 
 $lineCount = (Get-Content $activeUrlsFile | Where-Object { $_.Trim() }).Count
@@ -118,5 +124,9 @@ if ($ffmpeg) {
     $ytArgs += @('--ffmpeg-location', $ffmpeg)
 }
 
-& $pythonPath -m yt_dlp @ytArgs
+if ($ytdlpPath -and (Test-Path $ytdlpPath)) {
+    & $ytdlpPath @ytArgs
+} else {
+    & $pythonPath -m yt_dlp @ytArgs
+}
 exit $LASTEXITCODE

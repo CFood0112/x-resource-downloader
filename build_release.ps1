@@ -53,6 +53,19 @@ Copy-Item -LiteralPath (Join-Path $root 'README.md') -Destination (Join-Path $ds
 Copy-Item -LiteralPath (Join-Path $root 'LICENSE') -Destination (Join-Path $dst 'LICENSE') -Force
 Copy-Item -LiteralPath (Join-Path $root 'release_config.json') -Destination (Join-Path $program 'config.json') -Force
 
+$binDir = Join-Path $root 'release_bin'
+foreach ($bin in @('yt-dlp.exe', 'ffmpeg.exe')) {
+    $binSrc = Join-Path $binDir $bin
+    if (Test-Path $binSrc) {
+        Copy-Item -LiteralPath $binSrc -Destination (Join-Path $program $bin) -Force
+    }
+}
+
+$pythonRuntime = Join-Path $program 'runtime\python'
+if (Test-Path $pythonRuntime) {
+    Remove-Item -LiteralPath $pythonRuntime -Recurse -Force
+}
+
 $guiLauncher = Join-Path $dst '启动X资源下载器.bat'
 $menuLauncher = Join-Path $dst '命令行菜单.bat'
 $guiText = "@echo off`r`nchcp 65001 >nul`r`nif not exist `"%~dp0program\runtime\node\bin\node.exe`" goto missing`r`nif not exist `"%~dp0program\runtime\python\python.exe`" goto missing`r`ndel /q `"%~dp0program\gui_ready.txt`" >nul 2>nul`r`ndel /q `"%~dp0program\gui_error.log`" >nul 2>nul`r`nwscript.exe `"%~dp0program\start_gui.vbs`"`r`nset /a tries=0`r`n`r`:wait`r`nif exist `"%~dp0program\gui_ready.txt`" exit /b 0`r`nset /a tries+=1`r`nif %tries% geq 10 goto failed`r`nping -n 2 127.0.0.1 >nul`r`ngoto wait`r`n`r`:failed`r`necho GUI 启动失败，请查看 program\gui_error.log：`r`ntype `"%~dp0program\gui_error.log`"`r`necho.`r`npause`r`nexit /b 1`r`n`r`:missing`r`necho 发行包不完整，缺少内置运行时。请重新解压完整 release。`r`npause`r`nexit /b 1"

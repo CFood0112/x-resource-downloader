@@ -9,6 +9,7 @@ const root = path.dirname(configPath);
 const resolveRel = (p) => (path.isAbsolute(p) ? p : path.resolve(root, p));
 
 const pythonPath = resolveRel(config.pythonPath || 'python.exe');
+const ytdlpPath = config.ytdlpPath ? resolveRel(config.ytdlpPath) : '';
 const archiveFile = resolveRel(config.archiveFile || 'data/lists/archive.txt');
 const videoMetaFile = resolveRel(config.videoMetaFile || 'data/lists/video_meta.txt');
 const seenUrlsFile = resolveRel(config.seenUrlsFile || 'data/lists/seen_urls.txt');
@@ -93,17 +94,18 @@ async function main() {
 
   while (pendingUrls.length && mappedArchive.size < archiveIds.size && checked < maxUrls) {
     const url = pendingUrls.shift();
-    const args = [
-      '-m', 'yt_dlp',
+    const baseArgs = [
       '--simulate', '--no-warnings', '--yes-playlist',
       '--print', '%(id)s',
       '--extractor-retries', '5',
       '--legacy-server-connect',
       '--socket-timeout', '30',
       '--cookies', cookieFile,
-      url,
     ];
-    const res = spawnSync(pythonPath, args, {
+    const args = ytdlpPath
+      ? [...baseArgs, url]
+      : ['-m', 'yt_dlp', ...baseArgs, url];
+    const res = spawnSync(ytdlpPath || pythonPath, args, {
       encoding: 'utf8',
       timeout: 120000,
       stdio: ['ignore', 'pipe', 'pipe'],
