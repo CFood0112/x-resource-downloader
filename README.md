@@ -51,6 +51,8 @@
 .\start_gui.ps1
 ```
 
+也可以双击 `x_video_downloader.bat` 直接启动。
+
 3. 或使用命令行入口：
 
 ```powershell
