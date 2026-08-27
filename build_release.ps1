@@ -60,13 +60,22 @@ foreach ($dir in @('server', 'ui', 'collectors', 'downloaders')) {
 Copy-Item -LiteralPath (Join-Path $root 'README.md') -Destination (Join-Path $dst 'README.md') -Force
 Copy-Item -LiteralPath (Join-Path $root 'LICENSE') -Destination (Join-Path $dst 'LICENSE') -Force
 Copy-Item -LiteralPath (Join-Path $root 'SECURITY.md') -Destination (Join-Path $dst 'SECURITY.md') -Force
+Copy-Item -LiteralPath (Join-Path $root 'CHANGELOG.md') -Destination (Join-Path $dst 'CHANGELOG.md') -Force
 Copy-Item -LiteralPath (Join-Path $root 'THIRD_PARTY_NOTICES.md') -Destination (Join-Path $dst 'THIRD_PARTY_NOTICES.md') -Force
+$dstLicenses = Join-Path $dst 'THIRD_PARTY_LICENSES'
+if (Test-Path $dstLicenses) {
+    Remove-Item -LiteralPath $dstLicenses -Recurse -Force
+}
 $thirdPartyLicenses = Join-Path $root 'THIRD_PARTY_LICENSES'
 if (Test-Path $thirdPartyLicenses) {
     Copy-Item -LiteralPath $thirdPartyLicenses -Destination (Join-Path $dst 'THIRD_PARTY_LICENSES') -Recurse -Force
 }
 $screenshots = Join-Path $root 'screenshots'
 if (Test-Path $screenshots) {
+    $dstScreenshots = Join-Path $dst 'screenshots'
+    if (Test-Path $dstScreenshots) {
+        Remove-Item -LiteralPath $dstScreenshots -Recurse -Force
+    }
     Copy-Item -LiteralPath $screenshots -Destination (Join-Path $dst 'screenshots') -Recurse -Force
 }
 Copy-Item -LiteralPath (Join-Path $root 'release_config.json') -Destination (Join-Path $program 'config.json') -Force
@@ -111,7 +120,7 @@ if ($bad) {
 if (-not $SkipZip) {
 Remove-Item -LiteralPath (Join-Path $root 'release\X资源下载器.zip') -Force -ErrorAction SilentlyContinue
 Remove-Item -LiteralPath (Join-Path $root 'release\release.zip') -Force -ErrorAction SilentlyContinue
-Compress-Archive -Path (Join-Path $dst '启动X资源下载器.bat'),(Join-Path $dst '命令行菜单.bat'),(Join-Path $dst 'README.md'),(Join-Path $dst 'LICENSE'),(Join-Path $dst 'THIRD_PARTY_NOTICES.md'),(Join-Path $dst 'THIRD_PARTY_LICENSES'),$program -DestinationPath (Join-Path $root 'release\X资源下载器.zip') -CompressionLevel Optimal -Force
+Compress-Archive -Path (Join-Path $dst '启动X资源下载器.bat'),(Join-Path $dst '命令行菜单.bat'),(Join-Path $dst 'README.md'),(Join-Path $dst 'LICENSE'),(Join-Path $dst 'SECURITY.md'),(Join-Path $dst 'CHANGELOG.md'),(Join-Path $dst 'THIRD_PARTY_NOTICES.md'),(Join-Path $dst 'THIRD_PARTY_LICENSES'),(Join-Path $dst 'screenshots'),$program -DestinationPath (Join-Path $root 'release\X资源下载器.zip') -CompressionLevel Optimal -Force
 Compress-Archive -Path $dst -DestinationPath (Join-Path $root 'release\release.zip') -CompressionLevel Optimal -Force
 }
 

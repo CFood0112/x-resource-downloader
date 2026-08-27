@@ -432,7 +432,7 @@ async function runDownload(urls, force, ignoreSkips = false, source = 'likes') {
     state.job.state.failures = [];
     retryRound++;
     if (retryRound > maxRounds) break;
-    await new Promise((resolve) => setTimeout(resolve, 5000));
+    await new Promise((resolve) => setTimeout(resolve, 5000 + Math.random() * 10000));
     writeListFile(paths.retryUrlsFile, retryUrls);
     activeBatch = paths.retryUrlsFile;
     state.job.state.totalLinks = retryUrls.length;

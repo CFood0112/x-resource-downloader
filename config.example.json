@@ -2,6 +2,7 @@
   "username": "",
   "maxLikesToScan": 500,
   "maxScrollAttempts": 300,
+  "maxScrollRoundsPerDay": 1500,
   "loginTimeoutMs": 600000,
   "nodePath": "node",
   "nodeModules": "node_modules",
@@ -23,5 +24,7 @@
   "backfillPositionFile": "data/lists/backfill_position.txt",
   "videoMetaFile": "data/lists/video_meta.txt",
   "listsDir": "data/lists",
-  "runDir": "data/run"
+  "runDir": "data/run",
+  "jobsDir": "data/jobs",
+  "scrollBudgetFile": "data/lists/scroll_budget.txt"
 }

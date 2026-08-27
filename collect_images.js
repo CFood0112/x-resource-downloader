@@ -1,6 +1,11 @@
 const fs = require('fs');
 const path = require('path');
 const { chromium } = require('playwright');
+const {
+  checkDailyScrollBudget,
+  consumeDailyScrollBudget,
+  humanScroll,
+} = require('./collectors/risk');
 
 const configPath = path.resolve(process.argv[2] || 'config.json');
 const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
@@ -20,6 +25,8 @@ const configuredMaxScroll = Number(config.maxScrollAttempts) || 300;
 const maxScrollAttempts =
   imageMode === 'backfill' ? Math.max(configuredMaxScroll, 300) : configuredMaxScroll;
 const loginTimeoutMs = Number(config.loginTimeoutMs) || 600000;
+const maxScrollRoundsPerDay = Number(config.maxScrollRoundsPerDay) || 1500;
+const scrollBudgetFile = resolveRel(config.scrollBudgetFile || 'data/lists/scroll_budget.txt');
 
 function log(msg) {
   console.log(`[collect-images] ${msg}`);
@@ -177,20 +184,33 @@ async function main() {
     const collected = new Map();
     const seenMedia = new Set();
     let emptyRounds = 0;
+    let consecutiveErrors = 0;
 
     for (let attempt = 0; attempt < maxScrollAttempts; attempt++) {
       if (collected.size >= maxImages) break;
+
+      const budget = checkDailyScrollBudget(scrollBudgetFile, maxScrollRoundsPerDay);
+      if (!budget.ok) {
+        log(`今日滚动预算已用完（${budget.used}/${budget.max}），停止采集`);
+        break;
+      }
 
       const bodyText = await page
         .locator('body')
         .innerText()
         .catch(() => '');
       if (/something went wrong|出错了|try again/i.test(bodyText)) {
-        log('页面报错，刷新后继续');
+        consecutiveErrors++;
+        log(`页面报错（连续 ${consecutiveErrors} 次），刷新后继续`);
+        if (consecutiveErrors >= 3) {
+          log('连续多次页面出错，暂停本轮采集以避免风控');
+          break;
+        }
         await page.reload({ waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
-        await sleep(3000);
+        await sleep(8000 + Math.random() * 8000);
         continue;
       }
+      consecutiveErrors = 0;
 
       const snapshot = await readSnapshot(page);
       let newCount = 0;
@@ -235,8 +255,11 @@ async function main() {
         break;
       }
 
-      await page.evaluate(() => window.scrollBy(0, 2400));
-      await sleep(1300 + Math.random() * 900);
+      await humanScroll(page);
+      if (!consumeDailyScrollBudget(scrollBudgetFile, maxScrollRoundsPerDay, 1)) {
+        log('今日滚动预算已用完，停止采集');
+        break;
+      }
     }
 
     const lines = [...collected.values()].map(

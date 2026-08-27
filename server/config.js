@@ -19,8 +19,92 @@ const writeJson = (p, data) => {
 
 const resolveRel = (p) => (path.isAbsolute(p) ? p : path.resolve(ROOT, p));
 
-function normalizeSettings(raw) {
-  const config = readJson(CONFIG_PATH) || {};
+const LEGACY_PATH_MAP = {
+  'videos': 'data/videos',
+  'images': 'data/images',
+  'profile': 'data/profiles/main',
+  'profile_download': 'data/profiles/download',
+  'cookies.txt': 'data/cookies/cookies.txt',
+  'cookies_download.txt': 'data/cookies/cookies_download.txt',
+  'liked_urls.txt': 'data/lists/liked_urls.txt',
+  'seen_urls.txt': 'data/lists/seen_urls.txt',
+  'skipped_urls.txt': 'data/lists/skipped_urls.txt',
+  'lists/skipped_urls.txt': 'data/lists/skipped_urls.txt',
+  'lists': 'data/lists',
+  '.': 'data/run',
+  'logs': 'data/logs',
+  'archive.txt': 'data/lists/archive.txt',
+  'backfill_position.txt': 'data/lists/backfill_position.txt',
+  'lists/backfill_position.txt': 'data/lists/backfill_position.txt',
+  'video_meta.txt': 'data/lists/video_meta.txt',
+  'lists/video_meta.txt': 'data/lists/video_meta.txt',
+  'image_urls.txt': 'data/lists/image_urls.txt',
+  'image_archive.txt': 'data/lists/image_archive.txt',
+  'image_meta.txt': 'data/lists/image_meta.txt',
+  'retry_urls.txt': 'data/lists/retry_urls.txt',
+  'active_batch.txt': 'data/lists/active_batch.txt',
+  'manual_urls.txt': 'data/lists/manual_urls.txt',
+  'manual_tweet_urls.txt': 'data/lists/manual_tweet_urls.txt',
+  'image_failed.txt': 'data/lists/image_failed.txt',
+  'image_skip_request.txt': 'data/lists/image_skip_request.txt',
+};
+
+const CONFIG_PATH_FIELDS = [
+  'downloadDir',
+  'imageDir',
+  'profileDir',
+  'downloadProfileDir',
+  'downloadCookiesFile',
+  'imageUrlsFile',
+  'imageArchiveFile',
+  'imageMetaFile',
+  'listsDir',
+  'runDir',
+  'urlsFile',
+  'seenUrlsFile',
+  'skipUrlsFile',
+  'logsDir',
+  'cookiesFile',
+  'archiveFile',
+  'backfillPositionFile',
+  'videoMetaFile',
+];
+
+function migrateLegacyPaths(configObj, settingsObj) {
+  const config = { ...(configObj || {}) };
+  const settings = {
+    ...(settingsObj || {}),
+    video: { ...((settingsObj && settingsObj.video) || {}) },
+    image: { ...((settingsObj && settingsObj.image) || {}) },
+  };
+  let configChanged = false;
+  let settingsChanged = false;
+
+  for (const field of CONFIG_PATH_FIELDS) {
+    if (typeof config[field] === 'string' && LEGACY_PATH_MAP[config[field]]) {
+      config[field] = LEGACY_PATH_MAP[config[field]];
+      configChanged = true;
+    }
+  }
+
+  for (const key of ['downloadDir']) {
+    if (typeof settings.video[key] === 'string' && LEGACY_PATH_MAP[settings.video[key]]) {
+      settings.video[key] = LEGACY_PATH_MAP[settings.video[key]];
+      settingsChanged = true;
+    }
+  }
+  for (const key of ['downloadDir']) {
+    if (typeof settings.image[key] === 'string' && LEGACY_PATH_MAP[settings.image[key]]) {
+      settings.image[key] = LEGACY_PATH_MAP[settings.image[key]];
+      settingsChanged = true;
+    }
+  }
+
+  return { config, settings, configChanged, settingsChanged };
+}
+
+function normalizeSettings(raw, cfg) {
+  const config = cfg || readJson(CONFIG_PATH) || {};
   const legacy = !!(raw && raw.folderMode !== undefined);
   const video = (raw && raw.video) || {};
   const image = (raw && raw.image) || {};
@@ -47,10 +131,18 @@ function normalizeSettings(raw) {
   };
 }
 
-const config = readJson(CONFIG_PATH) || {};
-const rawSettings = readJson(SETTINGS_PATH) || {};
-let settings = normalizeSettings(rawSettings);
-if (rawSettings.folderMode !== undefined) {
+const configRaw = readJson(CONFIG_PATH) || {};
+const settingsRaw = readJson(SETTINGS_PATH) || {};
+const migrated = migrateLegacyPaths(configRaw, settingsRaw);
+if (migrated.configChanged) {
+  writeJson(CONFIG_PATH, migrated.config);
+}
+if (migrated.settingsChanged) {
+  writeJson(SETTINGS_PATH, migrated.settings);
+}
+const config = migrated.config;
+let settings = normalizeSettings(migrated.settings, config);
+if (migrated.settingsChanged || settingsRaw.folderMode !== undefined) {
   writeJson(SETTINGS_PATH, settings);
 }
 
@@ -80,6 +172,7 @@ const paths = {
   imageSkipRequestFile: '',
   videoMetaFile: '',
   downloadDir: resolveRel(config.downloadDir || 'videos'),
+  imageDir: resolveRel(config.imageDir || 'images'),
 };
 
 paths.queueFile = path.join(paths.jobsDir, 'queue.json');
@@ -104,4 +197,5 @@ module.exports = {
   writeJson,
   resolveRel,
   normalizeSettings,
+  migrateLegacyPaths,
 };

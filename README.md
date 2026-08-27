@@ -291,6 +291,8 @@ GUI 内定时任务：在“设置 → 定时任务”添加模式、数量、�
 | `username` | X 用户名，首次运行后自动写入 |
 | `maxLikesToScan` | 每次采集最大视频数量 |
 | `maxScrollAttempts` | 最大滚动轮数，默认 300 |
+| `maxScrollRoundsPerDay` | 每日最大滚动轮数，默认 1500 |
+| `scrollBudgetFile` | 每日滚动预算计数文件 |
 | `loginTimeoutMs` | 等待登录超时（毫秒） |
 | `nodePath` / `nodeModules` | Node 可执行文件与模块目录 |
 | `pythonPath` | Python 可执行文件 |
@@ -304,6 +306,8 @@ GUI 内定时任务：在“设置 → 定时任务”添加模式、数量、�
 | `listsDir` / `runDir` / `jobsDir` | 列表、运行状态、任务持久化目录 |
 | `videoMetaFile` / `imageMetaFile` | 元数据映射文件 |
 | `backfillPositionFile` | 从最早补录续扫位置 |
+
+> 开发版与发行版的 `config.json` 使用同一套路径 schema，默认都指向 `data/` 子目录。旧版根目录路径会在启动时自动迁移。
 
 `settings.json` 关键参数：
 

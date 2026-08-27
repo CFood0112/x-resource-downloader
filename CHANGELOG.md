@@ -11,6 +11,9 @@
 - 新增第三方组件声明 `THIRD_PARTY_NOTICES.md` 与对应许可证文件。
 - GUI 服务拆分为 `server/` 模块，前端移至 `ui/`。
 - 新增单元测试与 GitHub Actions CI。
+- 采集滚动随机化，新增每日滚动预算与连续出错熔断。
+- 开发版与发行版配置路径统一到 `data/`，启动时自动迁移旧路径。
+- Release zip 补齐 LICENSE、SECURITY、截图、变更日志与第三方声明。
 
 ## [0.1.0] - 2026-08-28
 

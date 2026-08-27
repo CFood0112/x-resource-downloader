@@ -2,6 +2,11 @@ const fs = require('fs');
 const path = require('path');
 const { chromium } = require('playwright');
 const { loadArchiveSkipUrls: loadArchiveSkipUrlsModule } = require('./collectors/archiveSkip');
+const {
+  checkDailyScrollBudget,
+  consumeDailyScrollBudget,
+  humanScroll,
+} = require('./collectors/risk');
 
 const configPath = path.resolve(process.argv[2] || 'config.json');
 const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
@@ -30,6 +35,8 @@ const configuredMaxScroll = Number(config.maxScrollAttempts) || 300;
 const envMaxScroll = Number(process.env.COLLECT_MAX_ATTEMPTS);
 const maxScrollAttempts =
   envMaxScroll || (isBackfill ? Math.max(configuredMaxScroll, 300) : configuredMaxScroll);
+const maxScrollRoundsPerDay = Number(config.maxScrollRoundsPerDay) || 1500;
+const scrollBudgetFile = resolveRel(config.scrollBudgetFile || 'data/lists/scroll_budget.txt');
 
 function log(msg) {
   console.log(`[collect] ${msg}`);
@@ -234,10 +241,17 @@ async function collectLikedVideos(page, username) {
   let crossedAnchor = false;
   let emptyRounds = 0;
   let stopCollecting = false;
+  let consecutiveErrors = 0;
 
   for (let attempt = 0; attempt < maxScrollAttempts; attempt++) {
     if (videoUrls.length >= maxLikes) {
       log(`已达到上限 ${maxLikes} 个视频，停止扫描`);
+      break;
+    }
+
+    const budget = checkDailyScrollBudget(scrollBudgetFile, maxScrollRoundsPerDay);
+    if (!budget.ok) {
+      log(`今日滚动预算已用完（${budget.used}/${budget.max}），停止采集`);
       break;
     }
 
@@ -246,11 +260,17 @@ async function collectLikedVideos(page, username) {
       .innerText()
       .catch(() => '');
     if (/something went wrong|出错了|try again/i.test(bodyText)) {
-      log('页面报错，刷新后继续');
+      consecutiveErrors++;
+      log(`页面报错（连续 ${consecutiveErrors} 次），刷新后继续`);
+      if (consecutiveErrors >= 3) {
+        log('连续多次页面出错，暂停本轮采集以避免风控');
+        break;
+      }
       await page.reload({ waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
-      await sleep(3000);
+      await sleep(8000 + Math.random() * 8000);
       continue;
     }
+    consecutiveErrors = 0;
 
     const snapshot = await readSnapshot(page);
 
@@ -331,9 +351,11 @@ async function collectLikedVideos(page, username) {
       break;
     }
 
-    const fastResume = isBackfill && resumeId !== null;
-    await page.evaluate(() => window.scrollBy(0, fastResume ? 6000 : 2400));
-    await sleep(fastResume ? 500 + Math.random() * 500 : 1300 + Math.random() * 900);
+    await humanScroll(page, { fast: isBackfill && resumeId !== null });
+    if (!consumeDailyScrollBudget(scrollBudgetFile, maxScrollRoundsPerDay, 1)) {
+      log('今日滚动预算已用完，停止采集');
+      break;
+    }
     saveBackfillPosition();
   }
 

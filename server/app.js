@@ -16,6 +16,8 @@ fs.mkdirSync(paths.listsDir, { recursive: true });
 fs.mkdirSync(paths.runDir, { recursive: true });
 fs.mkdirSync(paths.logDir, { recursive: true });
 fs.mkdirSync(paths.jobsDir, { recursive: true });
+fs.mkdirSync(paths.downloadDir, { recursive: true });
+fs.mkdirSync(paths.imageDir, { recursive: true });
 
 const savedQueue = loadQueue(paths.queueFile);
 state.queue = savedQueue.queue;
