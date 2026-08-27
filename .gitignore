@@ -10,6 +10,7 @@ release/
 release_bin/
 data/
 settings.json
+config.json
 liked_urls.txt
 seen_urls.txt
 manual_urls.txt
