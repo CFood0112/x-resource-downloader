@@ -37,7 +37,8 @@ $files = @(
     'gui.html','gui_server.js','install_scheduler.ps1','login_download.ps1',
     'login_download_account.js','login_main_account.js','manual_download.ps1',
     'menu.ps1','resolve_tweet_images.js','run_all.ps1','start_gui.ps1','start_gui.vbs',
-    'rebuild_video_meta.js','map_remaining_video_meta.js','run_map.ps1'
+    'rebuild_video_meta.js','map_remaining_video_meta.js','run_map.ps1',
+    'export_index.js','dedup_local.js'
 )
 
 foreach ($f in $files) {

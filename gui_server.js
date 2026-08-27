@@ -13,6 +13,8 @@ const COLLECT_IMAGES_JS = path.join(ROOT, 'collect_images.js');
 const DOWNLOAD_IMAGES_JS = path.join(ROOT, 'download_images.js');
 const DOWNLOAD_IMAGES_BROWSER_JS = path.join(ROOT, 'download_images_browser.js');
 const RESOLVE_TWEET_IMAGES_JS = path.join(ROOT, 'resolve_tweet_images.js');
+const EXPORT_JS = path.join(ROOT, 'export_index.js');
+const DEDUP_JS = path.join(ROOT, 'dedup_local.js');
 
 const readJson = (p) => {
   try {
@@ -57,6 +59,9 @@ function normalizeSettings(raw) {
     forceRedownload: !!(raw && raw.forceRedownload),
     useDownloadAccount: !!(raw && raw.useDownloadAccount),
     wizardDone: !!(raw && raw.wizardDone),
+    rateLimit: (raw && raw.rateLimit) || '',
+    proxyBySource: (raw && raw.proxyBySource) || {},
+    schedules: Array.isArray(raw && raw.schedules) ? raw.schedules : [],
   };
 }
 const rawSettings = readJson(SETTINGS_PATH) || {};
@@ -401,10 +406,16 @@ function buildYtdlpArgs(urls, force, source = 'likes') {
     args.push('--download-archive', archiveFile);
   }
 
-  if (settings.proxy === 'off') {
+  const sourceProxy = settings.proxyBySource && settings.proxyBySource[source];
+  if (sourceProxy) {
+    args.push('--proxy', sourceProxy);
+  } else if (settings.proxy === 'off') {
     args.push('--proxy', '');
   } else if (settings.proxy === 'custom' && settings.proxyUrl) {
     args.push('--proxy', settings.proxyUrl);
+  }
+  if (settings.rateLimit) {
+    args.push('--limit-rate', settings.rateLimit);
   }
 
   if (ffmpegPath) {
@@ -1368,6 +1379,38 @@ const requestHandler = async (req, res) => {
     return;
   }
 
+  if (req.method === 'POST' && url === '/api/export') {
+    const runResult = spawnSync(
+      nodePath,
+      [EXPORT_JS, CONFIG_PATH],
+      { encoding: 'utf8', timeout: 180000, env: { ...process.env, NODE_PATH: nodeModules } }
+    );
+    sendJson(res, runResult.status === 0 ? 200 : 500, {
+      ok: runResult.status === 0,
+      output: runResult.stdout || runResult.stderr || '',
+      path: path.join(ROOT, 'data', 'index.csv'),
+    });
+    return;
+  }
+
+  if (req.method === 'POST' && url === '/api/dedup') {
+    const strategy = (settings && settings.dedupStrategy) || 'move';
+    const runResult = spawnSync(
+      nodePath,
+      [DEDUP_JS, CONFIG_PATH],
+      {
+        encoding: 'utf8',
+        timeout: 600000,
+        env: { ...process.env, NODE_PATH: nodeModules, DEDUP_STRATEGY: strategy },
+      }
+    );
+    sendJson(res, runResult.status === 0 ? 200 : 500, {
+      ok: runResult.status === 0,
+      output: runResult.stdout || runResult.stderr || '',
+    });
+    return;
+  }
+
   sendJson(res, 404, { error: 'Not Found' });
 };
 
@@ -1430,3 +1473,22 @@ process.on('SIGTERM', () => {
 
 startServer(preferredPort);
 setInterval(sweepClients, 10000);
+
+let lastScheduleMinute = '';
+setInterval(() => {
+  const now = new Date();
+  const key = `${now.getHours()}:${now.getMinutes()}`;
+  if (key === lastScheduleMinute) return;
+  lastScheduleMinute = key;
+  for (const s of settings.schedules || []) {
+    if (!s.enabled) continue;
+    if (Number(s.hour) === now.getHours() && Number(s.minute) === now.getMinutes()) {
+      const body = {
+        count: Number(s.count) || 50,
+        source: s.source || 'likes',
+        extra: s.extra || '',
+      };
+      startJob(s.mode || '50', body);
+    }
+  }
+}, 30000);

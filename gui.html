@@ -690,6 +690,23 @@ textarea {
           <label for="proxyUrl">代理地址</label>
           <input id="proxyUrl" type="text" placeholder="http://127.0.0.1:7890">
         </div>
+        <div class="field">
+          <label for="rateLimit">下载限速（如 5M）</label>
+          <input id="rateLimit" type="text" placeholder="5M">
+        </div>
+        <div class="field">
+          <label for="proxyBySource">分来源代理（每行：来源=代理）</label>
+          <textarea id="proxyBySource" rows="4" placeholder="video_likes=http://127.0.0.1:7890"></textarea>
+        </div>
+        <div class="field">
+          <label for="dedupStrategy">去重策略</label>
+          <select id="dedupStrategy">
+            <option value="move">移动到 data/duplicates</option>
+            <option value="hardlink">硬链接</option>
+          </select>
+        </div>
+        <button id="exportIndex" class="secondary">生成 JSON/CSV 索引</button>
+        <button id="dedupLocal" class="secondary">本地去重扫描</button>
         <label class="check">
           <input id="forceRedownload" type="checkbox">
           强制重新下载已下载过的视频
@@ -707,6 +724,27 @@ textarea {
         <div id="accountPoolStatus" class="status-note">无小号</div>
         <div id="downloadAccountStatus" class="status-note">未登录</div>
         <button id="saveSettings" class="secondary">保存设置</button>
+
+        <h2>定时任务</h2>
+        <div class="dir-row">
+          <select id="scheduleMode">
+            <option value="50">最近 50</option>
+            <option value="100">最近 100</option>
+            <option value="download">只下载新增</option>
+            <option value="refresh">刷新喜欢</option>
+            <option value="images">图片下载</option>
+          </select>
+          <input id="scheduleCount" type="number" min="1" value="50">
+          <select id="scheduleSource">
+            <option value="likes">喜欢</option>
+            <option value="bookmarks">书签</option>
+            <option value="search">搜索</option>
+          </select>
+          <input id="scheduleHour" type="number" min="0" max="23" value="3">
+          <input id="scheduleMinute" type="number" min="0" max="59" value="0">
+        </div>
+        <button id="addSchedule" class="secondary">添加定时任务</button>
+        <div id="scheduleList" class="failure-list"></div>
 
         <h2>任务历史</h2>
         <div id="jobHistory" class="failure-list"></div>
@@ -751,6 +789,7 @@ const $ = (id) => document.getElementById(id);
 let lastState = null;
 let currentVideoFailures = [];
 let currentImageFailures = [];
+let currentSchedules = [];
 
 function statusText(status) {
   return {
@@ -915,6 +954,14 @@ function applyState(payload) {
     $('imageDownloadDir').value = imageSettings.downloadDir || 'images';
     $('proxy').value = payload.settings.proxy || 'auto';
     $('proxyUrl').value = payload.settings.proxyUrl || '';
+    $('rateLimit').value = payload.settings.rateLimit || '';
+    const proxyLines = Object.entries(payload.settings.proxyBySource || {})
+      .map(([k, v]) => `${k}=${v}`)
+      .join('\n');
+    $('proxyBySource').value = proxyLines;
+    $('dedupStrategy').value = payload.settings.dedupStrategy || 'move';
+    currentSchedules = payload.settings.schedules || [];
+    renderSchedules();
     $('forceRedownload').checked = !!payload.settings.forceRedownload;
     $('useDownloadAccount').checked = !!payload.settings.useDownloadAccount;
     $('downloadAccountStatus').textContent = payload.config.downloadAccountReady
@@ -944,6 +991,17 @@ async function saveSettings() {
     forceRedownload: $('forceRedownload').checked,
     useDownloadAccount: $('useDownloadAccount').checked,
     wizardDone: $('wizardOverlay').style.display === 'none',
+    rateLimit: $('rateLimit').value.trim(),
+    proxyBySource: Object.fromEntries(
+      $('proxyBySource').value
+        .split(/\r?\n/)
+        .map((l) => l.trim())
+        .filter(Boolean)
+        .map((l) => l.split('=').map((s) => s.trim()))
+        .filter((p) => p.length === 2)
+    ),
+    dedupStrategy: $('dedupStrategy').value,
+    schedules: currentSchedules,
   };
   await fetch('/api/settings', {
     method: 'POST',
@@ -1153,6 +1211,49 @@ function syncSourceExtras() {
 $('videoSource').addEventListener('change', syncSourceExtras);
 $('imageSource').addEventListener('change', syncSourceExtras);
 syncSourceExtras();
+
+function renderSchedules() {
+  $('scheduleList').innerHTML = currentSchedules
+    .map(
+      (s, i) =>
+        `<div class="failure-item"><div class="failure-meta"><div>${escapeHtml(s.mode)} · ${escapeHtml(s.source)} · ${escapeHtml(s.count || '')} · ${s.hour}:${String(s.minute).padStart(2, '0')} ${s.enabled ? '启用' : '停用'}</div><button data-del-schedule="${i}">删除</button></div></div>`
+    )
+    .join('');
+  document.querySelectorAll('[data-del-schedule]').forEach((b) => {
+    b.addEventListener('click', async () => {
+      currentSchedules.splice(Number(b.dataset.delSchedule), 1);
+      await saveSettings();
+      const res = await fetch('/api/state');
+      applyState(await res.json());
+    });
+  });
+}
+
+$('addSchedule').addEventListener('click', async () => {
+  currentSchedules.push({
+    mode: $('scheduleMode').value,
+    count: Number($('scheduleCount').value) || 50,
+    source: $('scheduleSource').value,
+    hour: Number($('scheduleHour').value) || 0,
+    minute: Number($('scheduleMinute').value) || 0,
+    enabled: true,
+  });
+  await saveSettings();
+  const res = await fetch('/api/state');
+  applyState(await res.json());
+});
+
+$('exportIndex').addEventListener('click', async () => {
+  const res = await fetch('/api/export', { method: 'POST' });
+  const data = await res.json();
+  alert(data.ok ? `索引已生成：${data.path}` : `导出失败：${data.output}`);
+});
+
+$('dedupLocal').addEventListener('click', async () => {
+  const res = await fetch('/api/dedup', { method: 'POST' });
+  const data = await res.json();
+  alert(data.ok ? `去重完成：${data.output}` : `去重失败：${data.output}`);
+});
 
 $('exitGui').addEventListener('click', async () => {
   await fetch('/api/gui-close', { method: 'POST' });
