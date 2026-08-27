@@ -371,4 +371,4 @@ Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 
 ## 📄 License
 
-待补充。建议选择 MIT 或 GPL-3.0，并在发布前补充完整许可证文本。
+本项目基于 **MIT License** 发布，完整许可文本见 [LICENSE](LICENSE)。

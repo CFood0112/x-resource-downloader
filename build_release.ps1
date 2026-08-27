@@ -50,6 +50,7 @@ foreach ($f in $files) {
 }
 
 Copy-Item -LiteralPath (Join-Path $root 'README.md') -Destination (Join-Path $dst 'README.md') -Force
+Copy-Item -LiteralPath (Join-Path $root 'LICENSE') -Destination (Join-Path $dst 'LICENSE') -Force
 Copy-Item -LiteralPath (Join-Path $root 'release_config.json') -Destination (Join-Path $program 'config.json') -Force
 
 $guiLauncher = Join-Path $dst '启动X资源下载器.bat'
