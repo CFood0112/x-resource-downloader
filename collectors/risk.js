@@ -42,8 +42,8 @@ function consumeDailyScrollBudget(file, max, rounds = 1) {
 
 async function humanScroll(page, { fast = false } = {}) {
   if (fast) {
-    await page.evaluate(() => window.scrollBy(0, 5000 + Math.floor(Math.random() * 2500)));
-    await sleep(500 + Math.random() * 700);
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    await sleep(400 + Math.random() * 600);
     return;
   }
 

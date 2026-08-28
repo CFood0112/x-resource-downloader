@@ -27,6 +27,9 @@ const maxScrollAttempts =
 const loginTimeoutMs = Number(config.loginTimeoutMs) || 600000;
 const maxScrollRoundsPerDay = Number(config.maxScrollRoundsPerDay) || 1500;
 const scrollBudgetFile = resolveRel(config.scrollBudgetFile || 'data/lists/scroll_budget.txt');
+const imageBackfillStateFile = resolveRel(
+  config.imageBackfillPositionFile || 'data/lists/image_backfill_position.json'
+);
 
 function log(msg) {
   console.log(`[collect-images] ${msg}`);
@@ -41,7 +44,11 @@ async function waitForLogin(page) {
   log('正在打开 X；如果弹出登录页，请在 Chrome 窗口里完成登录...');
 
   while (Date.now() < deadline) {
-    if (page.isClosed()) throw new Error('浏览器窗口已关闭');
+    if (page.isClosed()) {
+      throw new Error(
+        '浏览器窗口已关闭：请保持 Chrome 窗口打开；若没有自动登录，请先在设置中点击“更换主账号”重新登录'
+      );
+    }
 
     const bodyText = await page
       .locator('body')
@@ -130,11 +137,56 @@ async function main() {
     }
     if (min !== null) {
       anchorId = min;
-      log(`从最早一张已下载图片所在推文（ID ${anchorId}）开始向更早扫描`);
+      log(`已下载图片记录中最旧推文（ID ${anchorId}），本次按下载记录跳过已下载项`);
     } else {
       log('未找到已下载图片记录作为起点，本次按最近模式扫描');
     }
   }
+
+  let seenDownloadedTweets = new Set();
+  let passedAllDownloaded = false;
+  let roundsWithoutDownloadedSeen = 0;
+  let deepestSeenId = null;
+  if (imageMode === 'backfill') {
+    try {
+      const text = fs.readFileSync(imageBackfillStateFile, 'utf8').trim();
+      if (text) {
+        const parsed = JSON.parse(text);
+        if (parsed && parsed.position) {
+          deepestSeenId = BigInt(parsed.position);
+          seenDownloadedTweets = new Set(parsed.seen || []);
+          passedAllDownloaded = !!parsed.passedAll;
+          log(`检测到上次图片续扫位置（ID ${deepestSeenId}），先快速回到该位置`);
+        }
+      }
+    } catch {
+      /* no resume state yet */
+    }
+    if (archiveTweetById.size === 0) passedAllDownloaded = true;
+    if (passedAllDownloaded) {
+      log('上次已越过最早下载图片记录，本次直接继续收集更早内容');
+    } else if (seenDownloadedTweets.size) {
+      log(`已确认 ${seenDownloadedTweets.size}/${archiveTweetById.size} 条已下载图片推文，继续向最早记录推进`);
+    }
+  }
+
+  const saveBackfillState = () => {
+    if (imageMode !== 'backfill' || deepestSeenId === null) return;
+    try {
+      fs.mkdirSync(path.dirname(imageBackfillStateFile), { recursive: true });
+      fs.writeFileSync(
+        imageBackfillStateFile,
+        JSON.stringify({
+          position: deepestSeenId.toString(),
+          seen: [...seenDownloadedTweets],
+          passedAll: passedAllDownloaded,
+        }),
+        'utf8'
+      );
+    } catch {
+      /* ignore */
+    }
+  };
 
   let context;
   try {
@@ -185,6 +237,8 @@ async function main() {
     const seenMedia = new Set();
     let emptyRounds = 0;
     let consecutiveErrors = 0;
+    let newerPendingSkipped = 0;
+    let downloadedSkipped = 0;
 
     for (let attempt = 0; attempt < maxScrollAttempts; attempt++) {
       if (collected.size >= maxImages) break;
@@ -214,20 +268,34 @@ async function main() {
 
       const snapshot = await readSnapshot(page);
       let newCount = 0;
+      let newDownloadedSeenThisRound = false;
       for (const item of snapshot) {
-        if (
-          imageMode === 'backfill' &&
-          anchorId !== null &&
-          item.tweetId &&
-          BigInt(item.tweetId) >= anchorId
-        ) {
-          continue;
+        if (item.tweetId) {
+          if (deepestSeenId === null || BigInt(item.tweetId) < deepestSeenId) {
+            deepestSeenId = BigInt(item.tweetId);
+          }
+          const hasDownloadedImage = item.images.some((img) => archiveIds.has(img.mediaId));
+          if (hasDownloadedImage && !seenDownloadedTweets.has(item.tweetId)) {
+            seenDownloadedTweets.add(item.tweetId);
+            newDownloadedSeenThisRound = true;
+            if (seenDownloadedTweets.size >= archiveTweetById.size && !passedAllDownloaded) {
+              passedAllDownloaded = true;
+              log(`已越过最早一条已下载图片推文（共 ${seenDownloadedTweets.size} 条），开始收集更早内容`);
+            }
+          }
         }
         for (const image of item.images) {
           if (seenMedia.has(image.mediaId)) continue;
           seenMedia.add(image.mediaId);
           newCount++;
-          if (archiveIds.has(image.mediaId)) continue;
+          if (archiveIds.has(image.mediaId)) {
+            downloadedSkipped++;
+            continue;
+          }
+          if (imageMode === 'backfill' && !passedAllDownloaded) {
+            newerPendingSkipped++;
+            continue;
+          }
           collected.set(image.mediaId, {
             tweetId: item.tweetId,
             uploader: item.uploader,
@@ -241,9 +309,19 @@ async function main() {
         if (collected.size >= maxImages) break;
       }
 
+      if (imageMode === 'backfill' && !passedAllDownloaded) {
+        roundsWithoutDownloadedSeen = newDownloadedSeenThisRound
+          ? 0
+          : roundsWithoutDownloadedSeen + 1;
+        if (roundsWithoutDownloadedSeen >= 40) {
+          log('连续多轮未见新的已下载图片记录，可能部分记录已不在列表中，提前开始收集更早内容');
+          passedAllDownloaded = true;
+        }
+      }
+
       emptyRounds = newCount === 0 ? emptyRounds + 1 : 0;
       log(
-        `第 ${attempt + 1}/${maxScrollAttempts} 轮：累计发现 ${seenMedia.size} 张图片，待下载 ${collected.size} 张`
+        `第 ${attempt + 1}/${maxScrollAttempts} 轮：累计发现 ${seenMedia.size} 张图片，待下载 ${collected.size} 张，已跳过 ${downloadedSkipped} 张已下载图片${newerPendingSkipped ? `，跳过 ${newerPendingSkipped} 张未达起点的未下载图片` : ''}`
       );
 
       if (emptyRounds === 10) {
@@ -260,7 +338,10 @@ async function main() {
         log('今日滚动预算已用完，停止采集');
         break;
       }
+      saveBackfillState();
     }
+
+    saveBackfillState();
 
     const lines = [...collected.values()].map(
       (item) =>

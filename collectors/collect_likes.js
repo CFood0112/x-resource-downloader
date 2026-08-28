@@ -62,7 +62,11 @@ async function waitForLogin(page) {
   log('正在打开 X；如果弹出登录页，请在 Chrome 窗口里完成登录...');
 
   while (Date.now() < deadline) {
-    if (page.isClosed()) throw new Error('浏览器窗口已关闭');
+    if (page.isClosed()) {
+      throw new Error(
+        '浏览器窗口已关闭：请保持 Chrome 窗口打开；若没有自动登录，请先在设置中点击“更换主账号”重新登录'
+      );
+    }
 
     const bodyText = await page
       .locator('body')
@@ -203,7 +207,7 @@ async function collectLikedVideos(page, username) {
     }
     if (min !== null) {
       anchorId = min;
-      log(`从最早一条已下载视频（ID ${anchorId}）开始向更早扫描`);
+      log(`已下载视频记录共 ${archiveSkipUrls.size} 条，本次按下载记录推进，确认越过最早一条后再收集更早内容`);
     } else {
       log('未找到已下载记录作为起点，本次按最近模式扫描');
     }
@@ -213,15 +217,37 @@ async function collectLikedVideos(page, username) {
   let resumeSkipped = 0;
   let deepestSeenId = null;
   let lazyWarned = false;
+  let seenDownloaded = new Set();
+  let passedAllDownloaded = false;
+  let roundsWithoutDownloadedSeen = 0;
+  if (isBackfill && archiveSkipUrls.size === 0) {
+    passedAllDownloaded = true;
+  }
   if (isBackfill) {
     try {
       const text = fs.readFileSync(backfillPositionFile, 'utf8').trim();
       if (text) {
-        resumeId = BigInt(text);
-        log(`检测到上次续扫位置（ID ${resumeId}），先快速回到该位置`);
+        const parsed = JSON.parse(text);
+        if (parsed && parsed.position) {
+          resumeId = BigInt(parsed.position);
+          seenDownloaded = new Set(parsed.seen || []);
+          passedAllDownloaded = !!parsed.passedAll;
+          log(`检测到上次续扫位置（ID ${resumeId}），先快速回到该位置`);
+        } else if (/^\d+$/.test(text)) {
+          resumeId = BigInt(text);
+          log(`检测到上次续扫位置（ID ${resumeId}），先快速回到该位置`);
+        }
       }
     } catch {
       /* no resume position yet */
+    }
+    if (resumeId === null && anchorId !== null) {
+      log('没有上次续扫位置，本次从顶部开始扫描');
+    }
+    if (passedAllDownloaded) {
+      log('上次已越过最早下载记录，本次直接继续收集更早内容');
+    } else if (seenDownloaded.size) {
+      log(`已确认 ${seenDownloaded.size}/${archiveSkipUrls.size} 条已下载内容，继续向最早记录推进`);
     }
   }
 
@@ -229,7 +255,15 @@ async function collectLikedVideos(page, username) {
     if (!isBackfill || deepestSeenId === null) return;
     try {
       fs.mkdirSync(path.dirname(backfillPositionFile), { recursive: true });
-      fs.writeFileSync(backfillPositionFile, deepestSeenId.toString(), 'utf8');
+      fs.writeFileSync(
+        backfillPositionFile,
+        JSON.stringify({
+          position: deepestSeenId.toString(),
+          seen: [...seenDownloaded],
+          passedAll: passedAllDownloaded,
+        }),
+        'utf8'
+      );
     } catch {
       /* ignore */
     }
@@ -237,8 +271,7 @@ async function collectLikedVideos(page, username) {
 
   const videoUrls = [];
   let skippedCount = 0;
-  let newerSkipped = 0;
-  let crossedAnchor = false;
+  let newerPendingSkipped = 0;
   let emptyRounds = 0;
   let stopCollecting = false;
   let consecutiveErrors = 0;
@@ -275,6 +308,7 @@ async function collectLikedVideos(page, username) {
     const snapshot = await readSnapshot(page);
 
     let newCount = 0;
+    let newDownloadedSeenThisRound = false;
     for (const item of snapshot) {
       if (processedIds.has(item.id)) continue;
       if (!allSeenIds.has(item.id)) {
@@ -296,18 +330,17 @@ async function collectLikedVideos(page, username) {
         resumeId = null;
         log('已回到上次续扫位置，继续向更早扫描');
       }
-      if (isBackfill && anchorId !== null && BigInt(item.id) >= anchorId) {
-        processedIds.add(item.id);
-        newerSkipped++;
-        continue;
-      }
-      if (isBackfill && anchorId !== null && !crossedAnchor) {
-        crossedAnchor = true;
-        log('已越过锚点，开始收集更早的视频');
-      }
       if (item.hasVideo) {
         if (skipUrls.has(item.url)) {
           skippedCount++;
+          if (isBackfill && !seenDownloaded.has(item.url)) {
+            seenDownloaded.add(item.url);
+            newDownloadedSeenThisRound = true;
+            if (seenDownloaded.size >= archiveSkipUrls.size && !passedAllDownloaded) {
+              passedAllDownloaded = true;
+              log(`已越过最早一条已下载内容（共 ${seenDownloaded.size} 条），开始收集更早内容`);
+            }
+          }
           if (stopOnOld) {
             if (videoUrls.length > 0) {
               stopCollecting = true;
@@ -318,6 +351,8 @@ async function collectLikedVideos(page, username) {
               log('顶部可能还有未加载的新视频，继续扫描');
             }
           }
+        } else if (isBackfill && !passedAllDownloaded) {
+          newerPendingSkipped++;
         } else if (!collectedUrls.has(item.url)) {
           videoUrls.push(item.url);
           collectedUrls.add(item.url);
@@ -341,9 +376,19 @@ async function collectLikedVideos(page, username) {
       break;
     }
 
+    if (isBackfill && !passedAllDownloaded) {
+      roundsWithoutDownloadedSeen = newDownloadedSeenThisRound
+        ? 0
+        : roundsWithoutDownloadedSeen + 1;
+      if (roundsWithoutDownloadedSeen >= 40) {
+        log('连续多轮未见新的已下载记录，可能部分记录已不在列表中，提前开始收集更早内容');
+        passedAllDownloaded = true;
+      }
+    }
+
     emptyRounds = newCount === 0 ? emptyRounds + 1 : 0;
     log(
-      `第 ${attempt + 1}/${maxScrollAttempts} 轮：累计发现 ${allSeenIds.size} 条推文，其中视频 ${videoUrls.length} 条，已跳过 ${skippedCount} 条旧视频${isBackfill ? `，已跳过 ${newerSkipped} 条比锚点更新的推文` : ''}${resumeSkipped ? `，回滚跳过 ${resumeSkipped} 条` : ''}`
+      `第 ${attempt + 1}/${maxScrollAttempts} 轮：累计发现 ${allSeenIds.size} 条推文，其中视频 ${videoUrls.length} 条，已跳过 ${skippedCount} 条已下载视频${newerPendingSkipped ? `，跳过 ${newerPendingSkipped} 条未达起点的未下载内容` : ''}${resumeSkipped ? `，回滚跳过 ${resumeSkipped} 条` : ''}`
     );
 
     if (emptyRounds >= 10) {
