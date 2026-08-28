@@ -30,7 +30,6 @@ function buildYtdlpArgs({
 }) {
   const args = [
     '--batch-file', urls,
-    '--cookies', activeCookies,
     '--ignore-errors',
     '--newline',
     '--no-colors',
@@ -54,6 +53,9 @@ function buildYtdlpArgs({
       videoSettings: settings.video || {},
     }),
   ];
+  if (activeCookies) {
+    args.splice(2, 0, '--cookies', activeCookies);
+  }
 
   if (force) {
     args.push('--force-overwrites');

@@ -12,6 +12,7 @@ const {
   paths,
   writeJson,
   normalizeSettings,
+  resolveRel,
 } = require('./config');
 const { publicState, broadcast } = require('./broadcast');
 const { startJob, cancelJob, skipCurrent, startNextQueued } = require('./jobs');
@@ -233,6 +234,21 @@ const requestHandler = async (req, res) => {
     } catch {
       sendJson(res, 404, { ok: false, error: '任务不存在' });
     }
+    return;
+  }
+
+  if (req.method === 'POST' && url === '/api/open-dir') {
+    const body = await readBody(req);
+    const kind = body.kind === 'images' ? 'image' : 'video';
+    const dir =
+      kind === 'image'
+        ? resolveRel((settings.image && settings.image.downloadDir) || config.imageDir || 'images')
+        : resolveRel(
+            (settings.video && settings.video.downloadDir) || config.downloadDir || 'videos'
+          );
+    fs.mkdirSync(dir, { recursive: true });
+    spawn('explorer.exe', [dir], { detached: true, stdio: 'ignore' }).unref();
+    sendJson(res, 200, { ok: true, path: dir });
     return;
   }
 

@@ -6,4 +6,10 @@ function classifyError(msg = '') {
   return '其他';
 }
 
-module.exports = { classifyError };
+function inferLogLevel(line = '') {
+  return /^\[error\]|^ERROR:|FAIL |失败|Exception|Traceback|No such file|Error:/i.test(line)
+    ? 'error'
+    : 'info';
+}
+
+module.exports = { classifyError, inferLogLevel };

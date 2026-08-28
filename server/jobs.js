@@ -21,7 +21,7 @@ const {
   savePersistentFailures,
   mergeBatchFailures,
 } = require('./failures');
-const { classifyError } = require('./errors');
+const { classifyError, inferLogLevel } = require('./errors');
 const { scheduleAutoShutdown } = require('./shutdown');
 
 const COLLECT_JS = path.join(ROOT, 'collectors', 'collect_likes.js');
@@ -46,7 +46,7 @@ function addLog(line, meta = {}) {
     source: meta.source || state.job.state.source || '',
     mediaId: meta.mediaId || state.job.state.currentMediaId || '',
     elapsed: state.job.state.elapsed,
-    level: meta.level || 'info',
+    level: meta.level || inferLogLevel(line),
     message: line,
   });
   if (state.job.state.logEntries.length > 2000) {
@@ -362,6 +362,9 @@ async function runDownload(urls, force, ignoreSkips = false, source = 'likes') {
     const activeCookies = settings.useDownloadAccount
       ? nextDownloadCookieFile()
       : paths.cookiesFile;
+    if (!activeCookies || !fs.existsSync(activeCookies)) {
+      addLog('[job] 未找到可用 Cookie，本次下载可能受限');
+    }
     const args = buildYtdlpArgs({
       urls: activeBatch,
       force,

@@ -533,6 +533,7 @@ textarea {
       <h2>失败列表</h2>
       <div id="failuresList" class="failure-list"></div>
       <button id="fillVideoFailures" class="secondary">失败链接 → 手动链接</button>
+      <button id="openVideoDir" class="secondary">打开视频文件夹</button>
     </section>
   </main>
   </div>
@@ -620,6 +621,7 @@ textarea {
         <h2>失败列表</h2>
         <div id="imageFailuresList" class="failure-list"></div>
         <button id="fillImageFailures" class="secondary">失败链接 → 手动链接</button>
+        <button id="openImageDir" class="secondary">打开图片文件夹</button>
       </section>
     </main>
   </div>
@@ -968,16 +970,30 @@ function applyState(payload) {
       .join('\n');
     $('proxyBySource').value = proxyLines;
     $('dedupStrategy').value = payload.settings.dedupStrategy || 'move';
-    currentSchedules = payload.settings.schedules || [];
+    currentSchedules = (payload.settings.schedules || []).map((s) => ({
+      mode: '50',
+      source: 'likes',
+      count: 50,
+      hour: 3,
+      minute: 0,
+      enabled: true,
+      ...s,
+    }));
     renderSchedules();
     $('forceRedownload').checked = !!payload.settings.forceRedownload;
     $('useDownloadAccount').checked = !!payload.settings.useDownloadAccount;
-    $('downloadAccountStatus').textContent = payload.config.downloadAccountReady
-      ? `已配置 ${payload.config.downloadCookiesFile}`
-      : '未登录';
     const accounts = payload.config.downloadAccounts || [];
+    const accountIds = payload.config.downloadAccountIds || {};
+    const accountLabels = accounts.map((a) => {
+      const base = a || '默认小号';
+      const id = accountIds[a] || '';
+      return id ? `${base} (ID ${id})` : base;
+    });
+    $('downloadAccountStatus').textContent = payload.config.downloadAccountReady
+      ? `已配置 ${accountLabels.join(', ')}`
+      : '未登录';
     $('accountPoolStatus').textContent = accounts.length
-      ? `账号池：${accounts.join(', ')}`
+      ? `账号池：${accountLabels.join(', ')}`
       : '无小号';
   }
 }
@@ -1118,6 +1134,22 @@ $('fillImageFailures').addEventListener('click', () => {
     .map((f) => f.url)
     .filter(Boolean)
     .join('\n');
+});
+
+$('openVideoDir').addEventListener('click', async () => {
+  await fetch('/api/open-dir', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ kind: 'video' }),
+  });
+});
+
+$('openImageDir').addEventListener('click', async () => {
+  await fetch('/api/open-dir', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ kind: 'images' }),
+  });
 });
 
 function switchView(name) {
@@ -1267,10 +1299,17 @@ $('imageSource').addEventListener('change', syncSourceExtras);
 syncSourceExtras();
 
 function renderSchedules() {
+  if (!currentSchedules.length) {
+    $('scheduleList').innerHTML = '<div class="status-note">暂无定时任务</div>';
+    return;
+  }
   $('scheduleList').innerHTML = currentSchedules
     .map(
-      (s, i) =>
-        `<div class="failure-item"><div class="failure-meta"><div>${escapeHtml(s.mode)} · ${escapeHtml(s.source)} · ${escapeHtml(s.count || '')} · ${s.hour}:${String(s.minute).padStart(2, '0')} ${s.enabled ? '启用' : '停用'}</div><button data-del-schedule="${i}">删除</button></div></div>`
+      (s, i) => {
+        const hour = Number.isFinite(Number(s.hour)) ? Number(s.hour) : 3;
+        const minute = Number.isFinite(Number(s.minute)) ? Number(s.minute) : 0;
+        return `<div class="failure-item"><div class="failure-meta"><div>${escapeHtml(s.mode || '50')} · ${escapeHtml(s.source || 'likes')} · ${escapeHtml(String(s.count || 50))} · ${hour}:${String(minute).padStart(2, '0')} ${s.enabled ? '启用' : '停用'}</div><button data-del-schedule="${i}">删除</button></div></div>`;
+      }
     )
     .join('');
   document.querySelectorAll('[data-del-schedule]').forEach((b) => {

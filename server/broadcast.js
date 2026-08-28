@@ -1,7 +1,7 @@
 const fs = require('fs');
 const state = require('./appState');
 const { config, settings, paths } = require('./config');
-const { listDownloadAccounts } = require('./accounts');
+const { listDownloadAccounts, getDownloadAccountInfo } = require('./accounts');
 
 function baseState() {
   return {
@@ -29,6 +29,7 @@ function baseState() {
 
 function publicState() {
   const s = state.job ? state.job.state : baseState();
+  const accountInfo = getDownloadAccountInfo();
   return {
     state: s,
     lastFailures: state.lastFailures,
@@ -40,10 +41,11 @@ function publicState() {
       username: config.username || '',
       downloadDir:
         (settings.video && settings.video.downloadDir) || config.downloadDir || 'videos',
-      downloadAccountReady: fs.existsSync(paths.downloadCookiesFile),
+      downloadAccountReady: listDownloadAccounts().length > 0,
       downloadCookiesFile: require('path').basename(paths.downloadCookiesFile),
       mainAccountReady: fs.existsSync(paths.cookiesFile),
-      downloadAccounts: listDownloadAccounts(),
+      downloadAccounts: accountInfo.map((a) => a.name),
+      downloadAccountIds: Object.fromEntries(accountInfo.map((a) => [a.name, a.id])),
     },
   };
 }

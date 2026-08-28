@@ -63,6 +63,7 @@ function netscapeCookieLine(cookie) {
 async function saveCookies(context) {
   const cookies = await context.cookies();
   const lines = ['# Netscape HTTP Cookie File', ...cookies.map(netscapeCookieLine)];
+  fs.mkdirSync(path.dirname(cookiesFile), { recursive: true });
   fs.writeFileSync(cookiesFile, `${lines.join('\n')}\n`, 'utf8');
   log(`已导出 ${cookies.length} 个 Cookie 到 ${path.basename(cookiesFile)}`);
 }

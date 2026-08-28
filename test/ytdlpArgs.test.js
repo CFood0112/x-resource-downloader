@@ -39,6 +39,11 @@ test('force redownload drops archive and adds force-overwrites', () => {
   assert.ok(args.includes('--force-overwrites'));
 });
 
+test('omits cookies flag when no cookie file is available', () => {
+  const args = buildYtdlpArgs({ ...base, activeCookies: '' });
+  assert.ok(!args.includes('--cookies'));
+});
+
 test('builds output template by source folder', () => {
   const template = buildOutputTemplate({
     videoDir: 'D:/videos',

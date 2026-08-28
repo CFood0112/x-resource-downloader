@@ -1,4 +1,5 @@
 const fs = require('fs');
+const path = require('path');
 const state = require('./appState');
 const { settings, paths } = require('./config');
 const { loadQueue } = require('./queue');
@@ -18,6 +19,7 @@ fs.mkdirSync(paths.logDir, { recursive: true });
 fs.mkdirSync(paths.jobsDir, { recursive: true });
 fs.mkdirSync(paths.downloadDir, { recursive: true });
 fs.mkdirSync(paths.imageDir, { recursive: true });
+fs.mkdirSync(path.dirname(paths.cookiesFile), { recursive: true });
 
 const savedQueue = loadQueue(paths.queueFile);
 state.queue = savedQueue.queue;

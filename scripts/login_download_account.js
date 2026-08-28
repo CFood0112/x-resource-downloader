@@ -8,11 +8,11 @@ const root = path.dirname(configPath);
 
 const resolveRel = (p) => (path.isAbsolute(p) ? p : path.resolve(root, p));
 
-const accountName = process.env.ACCOUNT_NAME || '';
+let accountName = process.env.ACCOUNT_NAME || '';
 const profileDir = accountName
   ? path.join(path.dirname(resolveRel(config.profileDir)), `download_${accountName}`)
   : resolveRel(config.downloadProfileDir || 'profile_download');
-const cookiesFile = accountName
+let cookiesFile = accountName
   ? path.join(path.dirname(resolveRel(config.cookiesFile)), `cookies_download_${accountName}.txt`)
   : resolveRel(config.downloadCookiesFile || 'cookies_download.txt');
 const loginTimeoutMs = Number(config.loginTimeoutMs) || 600000;
@@ -45,8 +45,9 @@ async function waitForLogin(page) {
       const profileLink = page.locator('a[data-testid="AppTabBar_Profile_Link"]');
       if ((await profileLink.count()) > 0) {
         const href = await profileLink.getAttribute('href');
-        log(`已检测到登录状态：@${String(href).replace(/^\//, '')}`);
-        return;
+        const username = String(href).replace(/^\//, '').split('?')[0];
+        log(`已检测到登录状态：@${username}`);
+        return username;
       }
     }
 
@@ -68,6 +69,7 @@ function netscapeCookieLine(cookie) {
 async function saveCookies(context) {
   const cookies = await context.cookies();
   const lines = ['# Netscape HTTP Cookie File', ...cookies.map(netscapeCookieLine)];
+  fs.mkdirSync(path.dirname(cookiesFile), { recursive: true });
   fs.writeFileSync(cookiesFile, `${lines.join('\n')}\n`, 'utf8');
   log(`已导出 ${cookies.length} 个 Cookie 到 ${path.basename(cookiesFile)}`);
 }
@@ -90,7 +92,15 @@ async function main() {
       .goto('https://x.com/home', { waitUntil: 'domcontentloaded', timeout: 60000 })
       .catch(() => {});
 
-    await waitForLogin(page);
+    const username = await waitForLogin(page);
+    if (!accountName && username) {
+      accountName = username;
+      cookiesFile = path.join(
+        path.dirname(resolveRel(config.cookiesFile)),
+        `cookies_download_${accountName}.txt`
+      );
+      log(`未指定小号名称，已按用户名加入账号池：${accountName}`);
+    }
     await saveCookies(context);
     log('下载小号登录完成');
   } finally {
